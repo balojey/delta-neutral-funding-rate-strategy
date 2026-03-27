@@ -4,6 +4,10 @@ export const DRIFT = {
   PROGRAM_ID: "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH",
   LOOKUP_TABLE_ADDRESSES: ["Fpys8GRa5RBWfyeN7AaDUwFGD1zkDCA4z3t4CJLV8dfL"],
   SUB_ACCOUNT_ID: 0,
+  PERP: {
+    SOL: { MARKET_INDEX: 1 },
+    BTC: { MARKET_INDEX: 2 },
+  },
   SPOT: {
     STATE: "5zpq7DvB6UdFFvpmBPspGPNfUGoBRRCE2HHg5u3gxcsN",
     SOL: {
