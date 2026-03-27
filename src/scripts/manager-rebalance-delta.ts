@@ -127,7 +127,7 @@ const rebalanceDelta = async (
     const delta = spotNotional - Math.abs(perpNotional);
     const deltaRequiresIncrease = delta > 0; // spot > perp notional → need bigger short
 
-    if (!shouldIncreaseShort(healthRatio, deltaRequiresIncrease)) {
+    if (deltaRequiresIncrease && healthRatio < minMarginHealthRatio) {
       console.warn(`WARNING: Health ratio ${healthRatio} below minMarginHealthRatio. Skipping short increase.`);
       return;
     }

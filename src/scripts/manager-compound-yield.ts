@@ -99,7 +99,7 @@ const compoundYield = async (
     // Compute required margin from current short notional / minMarginHealthRatio
     const perpPosition = driftUser.getPerpPosition(perpMarketIndex);
     const shortNotional = perpPosition ? perpPosition.baseAssetAmount.abs() : new BN(0);
-    const requiredMargin = shortNotional.divn(minMarginHealthRatio);
+    const requiredMargin = shortNotional.muln(100).divn(Math.floor(minMarginHealthRatio * 100));
 
     const withdrawable = computeWithdrawable(freeCollateral, requiredMargin);
 
