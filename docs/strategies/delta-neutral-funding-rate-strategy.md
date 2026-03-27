@@ -1,6 +1,6 @@
 # Delta-Neutral Funding Rate Harvesting Strategy
 
-> Target: ≥ 25% APY | Risk Profile: Low-Medium | Asset: USDC
+> Target: ≥ 25% APY in neutral-to-bull markets | Risk Profile: Low-Medium | Asset: USDC
 
 ---
 
@@ -27,9 +27,12 @@ perpetual futures traders (who are predominantly long) and the market-making sid
 (shorts), combined with the base lending APY earned on the USDC collateral deposited
 into Drift's spot market.
 
-The strategy targets a blended **25–40% APY** under normal market conditions, with
-periods of elevated funding (bull markets, high leverage demand) pushing returns
-significantly higher.
+The strategy targets a blended **18–40% APY** depending on market conditions.
+The 25% APY threshold is reliably achievable in neutral-to-bull markets, which
+represent the majority of crypto market time. In bear markets with sustained negative
+funding, the strategy falls back to the USDC lending yield floor (5–8% APY) — it
+should not be presented as an all-weather 25% floor. This is a bull/neutral market
+strategy with a managed downside, not a fixed-yield product.
 
 ---
 
@@ -62,9 +65,13 @@ APY = (1 + rate)^(24 × 365.25) - 1
 ```
 
 Historically, SOL-PERP and BTC-PERP on Drift have averaged **0.01–0.03% per hour**
-during bull/neutral markets, which annualizes to roughly **87–262% APR** on the
-short side. Even in conservative, range-bound conditions, average rates of
-**0.003–0.005% per hour** produce **26–44% APR**.
+during **peak leverage demand** (late-stage bull markets) — not average conditions.
+These rates are cherry-picked highs. In neutral markets, the more representative
+range is **0.003–0.005% per hour**, which annualizes to **26–44% APR on the short
+leg alone**. However, that APR applies only to the 40% of capital deployed as margin,
+so the blended contribution to total NAV from funding is closer to **10–18%** in
+neutral conditions. The lending yield on the remaining 50% of capital provides the
+stable base on top of this.
 
 ### Lending Yield on Collateral
 
@@ -132,53 +139,79 @@ negative funding days. The goal is yield, not leverage.
 
 ## 4. Yield Sources & APY Breakdown
 
-### Conservative Scenario (range-bound market, low funding)
+> Important framing: the 25% APY target is achievable in neutral-to-bull markets.
+> Bear markets with sustained negative funding reduce the strategy to its lending
+> yield floor. All scenarios below use simple-rate arithmetic for funding — funding
+> accrues to the Drift account balance but is not automatically redeployed into a
+> larger short position. Compounding only applies after manual weekly reinvestment
+> on the incremental capital added.
+
+### Bear Market Scenario (negative or near-zero funding, low utilization)
 
 | Source | Estimated APY |
 |---|---|
-| Drift USDC lending yield | 8% |
-| Funding rate harvest (0.003%/hr avg, 40% of capital deployed) | 10.5% |
-| Compounding effect (weekly reinvestment) | +1.5% |
-| **Total** | **~20% APY** |
+| Drift USDC lending yield | 5–8% |
+| Funding rate harvest (negative, buffer absorbing payments) | 0% net |
+| **Total** | **5–8% APY** |
 
-> Note: Conservative scenario may dip below the 25% target during prolonged
-> bear markets where funding turns negative. The 10% buffer absorbs these periods.
+> The 10% buffer absorbs negative funding payments. At −0.003%/hr, the buffer
+> covers approximately 30 days before requiring position reduction. If negative
+> funding persists beyond 7 days, the bot reduces the short size by 50%.
 
-### Base Scenario (neutral-to-bullish market, moderate funding)
-
-| Source | Estimated APY |
-|---|---|
-| Drift USDC lending yield | 12% |
-| Funding rate harvest (0.005%/hr avg, 40% of capital deployed) | 17.5% |
-| Compounding effect (weekly reinvestment) | +2% |
-| **Total** | **~31.5% APY** |
-
-### Bull Market Scenario (high leverage demand, elevated funding)
+### Neutral Market Scenario (range-bound, moderate funding)
 
 | Source | Estimated APY |
 |---|---|
-| Drift USDC lending yield | 15% |
-| Funding rate harvest (0.01%/hr avg, 40% of capital deployed) | 35% |
+| Drift USDC lending yield (50% of capital, ~10% APY) | 5% blended |
+| Funding rate harvest (0.003–0.005%/hr avg, 40% of capital) | 10–17.5% blended |
+| Compounding effect (weekly reinvestment) | +1.5–2% |
+| **Total** | **~18–24% APY** |
+
+### Bull Market Scenario (positive funding, high leverage demand)
+
+| Source | Estimated APY |
+|---|---|
+| Drift USDC lending yield (50% of capital, ~12–15% APY) | 6–7.5% blended |
+| Funding rate harvest (0.005–0.01%/hr avg, 40% of capital) | 17.5–35% blended |
+| Compounding effect (weekly reinvestment) | +2–3% |
+| **Total** | **~28–40% APY** |
+
+### Peak Bull Scenario (elevated funding, high utilization)
+
+| Source | Estimated APY |
+|---|---|
+| Drift USDC lending yield (50% of capital, ~15% APY) | 7.5% blended |
+| Funding rate harvest (0.01–0.03%/hr avg, 40% of capital) | 35–105% blended |
 | Compounding effect (weekly reinvestment) | +3% |
-| **Total** | **~53% APY** |
+| **Total** | **~45–50% APY (capped by position sizing)** |
+
+> Peak bull figures are capped in practice by the 40% capital deployment ratio and
+> the 2x leverage limit. The strategy does not chase maximum funding at the expense
+> of margin safety.
 
 ### APY Calculation Methodology
 
-Funding APY contribution is calculated as:
+Funding APY contribution uses simple-rate arithmetic (not hourly compounding, since
+funding accrues to the account balance and is only redeployed weekly):
 
 ```
-funding_apy = ((1 + avg_hourly_rate)^(24 × 365.25) - 1) × capital_deployed_ratio
+funding_apy_contribution = avg_hourly_rate × 24 × 365.25 × capital_deployed_ratio
 ```
 
-For the base scenario:
+For the neutral scenario at 0.005%/hr:
 ```
-= ((1 + 0.00005)^8766 - 1) × 0.40
-= (1.5425 - 1) × 0.40
-= 0.2170 → ~21.7% on total capital
+= 0.00005 × 24 × 365.25 × 0.40
+= 0.4383 × 0.40
+= 0.1753 → ~17.5% contribution to total NAV
 ```
 
-Combined with 12% lending yield on 50% of capital (= 6% blended) and compounding,
-the blended total reaches ~31.5%.
+Lending yield contribution (50% of capital at 10% APY):
+```
+= 0.10 × 0.50 = 5% contribution to total NAV
+```
+
+Blended total before compounding: ~22.5%. With weekly compounding on reinvested
+yield: ~24%. This is the realistic base case — not 31.5%.
 
 ---
 
@@ -237,15 +270,25 @@ A lightweight off-chain bot (TypeScript, running on a cron schedule) handles:
 
 ### Negative Funding Rate Risk
 **Risk**: Funding turns negative (shorts pay longs) during sharp market downturns.
+This is the primary risk of the strategy and should not be understated. During the
+2022 bear market and Q3 2025 neutral period, funding was negative for weeks at a time.
 **Mitigation**: The 10% USDC buffer absorbs up to ~30 days of negative funding at
-−0.003%/hr before requiring intervention. The bot monitors and can reduce position
-size if negative funding persists beyond 7 days.
+−0.003%/hr. The bot monitors the 7-day rolling average and reduces the short position
+by 50% if funding remains negative for more than 7 consecutive days, limiting ongoing
+drain. This strategy is best deployed in neutral-to-bull market conditions; it is not
+designed to generate 25%+ APY in sustained bear markets.
 
-### Liquidation Risk
-**Risk**: Extreme volatility causes the short perp margin to approach liquidation.
+### Liquidation Risk & Margin Health Monitoring
+**Risk**: A sharp SOL price spike (e.g., +40% in a short window) compresses the short
+perp's margin health ratio faster than the bot can react. At 2x leverage this is
+manageable, but it requires active monitoring — not just a daily check. A 40% gap
+move before the next rebalance cycle could push the health ratio toward the danger
+zone.
 **Mitigation**: 1x–2x leverage only. Drift's cross-margin model allows the USDC
-spot deposit to act as additional collateral. The bot tops up margin from the buffer
-if health ratio < 1.5.
+spot deposit to act as additional collateral, providing a meaningful buffer. The bot
+monitors health ratio on every hourly funding cycle (not just daily) and tops up
+margin from the buffer if health ratio < 1.5. If health ratio drops below 1.2, the
+short size is reduced immediately regardless of funding conditions.
 
 ### Smart Contract Risk
 **Risk**: Vulnerability in Drift Protocol or Voltr Vault contracts.
