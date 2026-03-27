@@ -1,6 +1,6 @@
-# Voltr Base Client Scripts
+# Voltr Vault Client Scripts
 
-A set of base scripts for interacting with the Voltr Vault protocol on Solana using the `@voltr/vault-sdk`. These scripts provide fundamental operations for vault administration and user interaction.
+A set of TypeScript scripts for interacting with the Voltr Vault protocol on Solana, including base vault operations and Drift spot market strategy integrations via the `@voltr/vault-sdk`.
 
 ## Table of Contents
 
@@ -8,365 +8,390 @@ A set of base scripts for interacting with the Voltr Vault protocol on Solana us
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration](#configuration)
-  - [Environment Variables (Required)](#environment-variables-required)
-  - [Configuration File (`config/base.ts`)](#configuration-file-configconfigts)
+  - [Environment Variables](#environment-variables)
+  - [Base Config (`config/base.ts`)](#base-config-configbasets)
+  - [Drift Config (`config/drift.ts`)](#drift-config-configdriftts)
 - [Available Scripts](#available-scripts)
   - [Admin Scripts](#admin-scripts)
+  - [Manager Scripts](#manager-scripts)
   - [User Scripts](#user-scripts)
   - [Query Scripts](#query-scripts)
-- [Basic Usage Flow](#basic-usage-flow)
+- [Usage Flows](#usage-flows)
+  - [Basic Vault Flow](#basic-vault-flow)
+  - [Drift Strategy Flow](#drift-strategy-flow)
 - [Project Structure](#project-structure)
-- [Development](#development)
+- [Dependencies](#dependencies)
 
 ---
 
 ## Introduction
 
-This repository contains a collection of TypeScript scripts demonstrating basic interactions with Voltr Vaults on the Solana blockchain. They cover core functionalities like initializing and managing vaults, depositing and withdrawing assets for users, and querying vault/user state.
-
-These scripts serve as a starting point and example for building more complex integrations with the Voltr protocol.
+This repository contains TypeScript scripts for interacting with Voltr Vaults on Solana. It covers core vault operations (init, deposit, withdraw, fee harvesting) as well as Drift protocol spot market strategy management via the Voltr Drift Adaptor.
 
 ---
 
 ## Prerequisites
 
-1.  **Node.js v18+**
-    Ensure you have Node.js version 18 or higher installed.
+1. **Node.js v18+**
 
-2.  **pnpm**
-    This project uses pnpm for package management. Install it if you haven't already:
-    ```bash
-    npm install -g pnpm
-    ```
-    Or see the [pnpm website](https://pnpm.io/installation).
+2. **pnpm**
+   ```bash
+   npm install -g pnpm
+   ```
 
-3.  **Solana Keypairs**
-    You'll need separate Solana keypair files (in JSON format) for the following roles:
-    *   **Admin:** Manages vault configuration and fee harvesting.
-    *   **Manager:** Designated during vault initialization (role specified by Voltr protocol, used in init/harvest).
-    *   **User:** Interacts with the vault (deposit/withdraw).
+3. **Solana Keypair files (JSON format)** for three roles:
+   - **Admin** — vault configuration and admin operations
+   - **Manager** — strategy management (deposit/withdraw into Drift)
+   - **User** — vault deposits and withdrawals
 
-    Store these JSON files securely on your filesystem.
-
-4.  **Solana RPC URL**
-    A reliable Solana RPC endpoint URL is required. The scripts are configured to use a Helius RPC URL provided via an environment variable, but any compatible RPC should work.
+4. **Solana RPC URL** — a reliable endpoint (e.g. Helius)
 
 ---
 
 ## Installation
 
-1.  Clone this repository:
-    ```bash
-    git clone <your-repo-url> voltr-base-scripts
-    cd voltr-base-scripts
-    ```
-
-2.  Install dependencies:
-    ```bash
-    pnpm install
-    ```
+```bash
+git clone <your-repo-url>
+cd <repo>
+pnpm install
+```
 
 ---
 
 ## Configuration
 
-Configuration requires setting environment variables and editing the `config/base.ts` file.
+### Environment Variables
 
-### Environment Variables (Required)
-
-These scripts expect the following environment variables to be set, pointing to your keypair files and RPC URL:
-
-*   `ADMIN_FILE_PATH`: Absolute path to the Admin keypair JSON file.
-*   `MANAGER_FILE_PATH`: Absolute path to the Manager keypair JSON file.
-*   `USER_FILE_PATH`: Absolute path to the User keypair JSON file.
-*   `HELIUS_RPC_URL`: Your Solana RPC endpoint URL.
-
-**Example (using .env file or exporting):**
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-export ADMIN_FILE_PATH="/path/to/your/admin.json"
-export MANAGER_FILE_PATH="/path/to/your/manager.json"
-export USER_FILE_PATH="/path/to/your/user.json"
-export HELIUS_RPC_URL="https://your-rpc-provider-url"
+ADMIN_FILE_PATH="/path/to/your/admin.json"
+MANAGER_FILE_PATH="/path/to/your/manager.json"
+USER_FILE_PATH="/path/to/your/user.json"
+HELIUS_RPC_URL="https://your-rpc-provider-url"
 ```
 
-**Security Note:** Never commit your private key JSON files to version control. Keep them secure and use environment variables or a secure secrets management system.
+> Never commit keypair files to version control.
 
-### Configuration File (`config/base.ts`)
+### Base Config (`config/base.ts`)
 
-This file contains parameters for vault operations. You **must** edit this file before running scripts.
+Edit this file before running any scripts.
 
-*   **Vault Initialization (Needed for `admin-init-vault.ts`)**
-    *   `vaultConfig`: An object defining parameters like `maxCap`, fees (`managerPerformanceFee`, `adminPerformanceFee`, etc.), `lockedProfitDegradationDuration`, `redemptionFee`, `issuanceFee`, `withdrawalWaitingPeriod`.
-    *   `vaultParams`: Contains `vaultConfig` and basic metadata like `name`, `description`.
+- **`vaultConfig`** — vault parameters used during initialization:
+  - `maxCap`: maximum total deposits (in base asset smallest units)
+  - `managerPerformanceFee` / `adminPerformanceFee`: fees in basis points (500 = 5%)
+  - `managerManagementFee` / `adminManagementFee`: annual management fees in basis points
+  - `lockedProfitDegradationDuration`: seconds over which locked profit is linearly released
+  - `redemptionFee`: one-time fee on withdrawal (basis points)
+  - `issuanceFee`: one-time fee on deposit (basis points)
+  - `withdrawalWaitingPeriod`: seconds a user must wait between requesting and completing a withdrawal
 
-*   **Core Vault Details**
-    *   `assetMintAddress`: **Required.** The public key (string) of the token mint that will be deposited into the vault (e.g., USDC, SOL).
-    *   `assetTokenProgram`: **Required.** The public key (string) of the SPL Token program governing the `assetMintAddress` (e.g., `Tokenkeg...` for SPL Token, `Tokenz...` for Token-2022).
-    *   `vaultAddress`: **Required after initialization.** Leave empty initially. After running `admin-init-vault.ts`, paste the outputted vault public key here.
+- **`vaultParams`** — wraps `vaultConfig` with `name` and `description` strings
 
-*   **Transaction Optimization (Optional)**
-    *   `useLookupTable`: Boolean. Set to `true` to create and use an Address Lookup Table (LUT) during initialization for potentially cheaper transactions.
-    *   `lookupTableAddress`: **Required if `useLookupTable` is true.** Leave empty initially. After running `admin-init-vault.ts` with `useLookupTable: true`, paste the outputted LUT public key here.
+- **`lpTokenMetadata`** — optional LP token metadata: `symbol`, `name`, `uri` (used by `admin-init-vault-and-set-token-metadata.ts` and `admin-set-token-metadata.ts`)
 
-*   **Action Parameters (Needed for deposit/withdraw scripts)**
-    *   `depositAmountVault`: The amount of the base asset (in its smallest unit, e.g., lamports for SOL, 10^6 for USDC) to deposit.
-    *   `withdrawAmountVault`: The amount to withdraw. Interpretation depends on `isWithdrawInLp`.
-    *   `isWithdrawAll`: Boolean. If `true`, attempts to withdraw the user's entire position, overriding `withdrawAmountVault`.
-    *   `isWithdrawInLp`: Boolean. If `true`, `withdrawAmountVault` is interpreted as the amount of *LP tokens* to withdraw. If `false`, it's interpreted as the amount of the *underlying asset* to withdraw.
+- **`assetMintAddress`** — public key of the token deposited into the vault (e.g. USDC mint)
+
+- **`assetTokenProgram`** — token program governing the asset mint (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` for SPL Token, or Token-2022 program ID)
+
+- **`vaultAddress`** — leave empty initially; fill in after running `admin-init-vault.ts`
+
+- **`useLookupTable`** — set `true` to create and use an Address Lookup Table (LUT) for cheaper transactions
+
+- **`lookupTableAddress`** — leave empty initially; fill in after vault init if `useLookupTable` is `true`
+
+- **`depositAmountVault`** / **`withdrawAmountVault`** — amounts in smallest token units (e.g. `1_000_000` = 1 USDC)
+
+- **`isWithdrawAll`** — if `true`, withdraws the user's entire position
+
+- **`isWithdrawInLp`** — if `true`, `withdrawAmountVault` is interpreted as LP token amount; if `false`, as underlying asset amount
+
+- **`vaultConfigUpdateField`** / **`vaultConfigUpdateValue`** — field and value used by `admin-update-vault-config.ts`
+
+### Drift Config (`config/drift.ts`)
+
+- **`depositStrategyAmount`** — amount of the vault's base asset to deposit into the Drift strategy (smallest units)
+
+- **`withdrawStrategyAmount`** — amount to withdraw from the Drift strategy (smallest units)
+
+- **`driftMarketIndex`** — Drift spot market index to interact with. Must correspond to the vault's `assetMintAddress`. Available indices are defined in `src/constants/drift.ts`:
+  - USDC: `0`
+  - SOL: `1`
+  - USDT: `5`
+  - PYUSD: `22`
+  - USDS: `28`
+  - USDC_JLP: `34`
+
+- **`enableMarginTrading`** — boolean passed during `manager-init-user.ts` to enable margin trading on the Drift user account
+
+- **`directWithdrawDiscriminator`** — instruction discriminator bytes used by `admin-init-direct-withdraw.ts`
+
+> No swaps are performed. The vault's `assetMintAddress` must directly match the asset of the chosen `driftMarketIndex`.
 
 ---
 
 ## Available Scripts
 
-Run scripts using `pnpm ts-node <script_path>`. Ensure environment variables are set and `config/base.ts` is updated appropriately for the script you are running.
+Run scripts with:
+```bash
+pnpm ts-node src/scripts/<script-name>.ts
+```
 
 ### Admin Scripts
 
-*   **`src/scripts/admin-init-vault.ts`**
-    *   Initializes a new Voltr vault using the Admin as payer and designates the Manager.
-    *   Requires `vaultConfig`, `vaultParams`, `assetMintAddress`, `assetTokenProgram` in `base.ts`.
-    *   Outputs the new `vaultAddress` and `lookupTableAddress` (if `useLookupTable` is true). **You must update `base.ts` with these values after running.**
-    *   Uses `ADMIN_FILE_PATH` and `MANAGER_FILE_PATH`.
+- **`admin-init-vault.ts`**
+  Initializes a new vault. Generates a vault keypair, sets up the vault with `vaultParams` and `assetMintAddress`, and optionally creates and populates a LUT.
+  Outputs the vault address and LUT address — update `config/base.ts` with these values.
+  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
 
-*   **`src/scripts/admin-update-vault.ts`**
-    *   Updates the configuration (`vaultConfig`) of an existing vault.
-    *   Requires `vaultAddress` and the desired `vaultConfig` in `base.ts`.
-    *   Uses `ADMIN_FILE_PATH`.
+- **`admin-init-vault-and-set-token-metadata.ts`**
+  Same as above but also sets LP token metadata (`lpTokenMetadata`) in the same flow.
+  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
 
-*   **`src/scripts/admin-harvest-fee.ts`**
-    *   Collects accumulated performance and protocol fees from the vault, distributing them to Admin, Manager, and Protocol Admin.
-    *   Requires `vaultAddress` in `base.ts`.
-    *   Uses `ADMIN_FILE_PATH` and `MANAGER_FILE_PATH`.
+- **`admin-set-token-metadata.ts`**
+  Sets or updates LP token metadata on an existing vault.
+  Requires: `vaultAddress`, `lpTokenMetadata`
+  Uses: `ADMIN_FILE_PATH`
+
+- **`admin-update-vault-config.ts`**
+  Updates a single vault config field. Supports all `VaultConfigField` variants including fees, caps, waiting periods, and admin/manager public keys. The value is serialized according to the field type.
+  Requires: `vaultAddress`, `vaultConfigUpdateField`, `vaultConfigUpdateValue`
+  Uses: `ADMIN_FILE_PATH`
+
+- **`admin-accept-vault-admin.ts`**
+  Accepts a pending admin transfer for the vault. Run this with the new admin's keypair after a `PendingAdmin` update has been set via `admin-update-vault-config.ts`.
+  Requires: `vaultAddress`
+  Uses: `ADMIN_FILE_PATH` (as the pending admin)
+
+- **`admin-harvest-fee.ts`**
+  Collects accumulated performance fees from the vault and distributes LP tokens to the admin, manager, and protocol admin. Creates recipient LP token accounts if they don't exist.
+  Requires: `vaultAddress`
+  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
+
+- **`admin-add-adaptor.ts`**
+  Adds the Voltr Drift Adaptor program (`ADAPTOR_PROGRAM_ID`) to the vault's approved adaptors list. Only needs to be run once per vault. Optionally updates the LUT.
+  Requires: `vaultAddress`
+  Uses: `ADMIN_FILE_PATH`
+
+- **`admin-init-direct-withdraw.ts`**
+  Initializes a direct withdraw strategy for the vault, registering a specific Drift spot market vault as a counterparty with a given instruction discriminator. Used for enabling direct user withdrawals from a Drift position.
+  Requires: `vaultAddress`, `driftMarketIndex`, `directWithdrawDiscriminator` (from `config/drift.ts`), `lookupTableAddress` (if `useLookupTable`)
+  Uses: `ADMIN_FILE_PATH`
+
+### Manager Scripts
+
+- **`manager-init-user.ts`**
+  Initializes the Drift "user" strategy for the vault. Creates the strategy PDA (seeded with `"drift_user"`), the Drift user stats and user accounts, and the vault strategy asset ATA. Sets the manager as the delegatee. Only needs to be run once per vault.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `enableMarginTrading`
+  Uses: `ADMIN_FILE_PATH` (as payer), `MANAGER_FILE_PATH` (as delegatee)
+
+- **`manager-init-earn.ts`**
+  Initializes the Drift "earn" strategy for the vault. Uses the spot market vault PDA as the strategy address (seeded with `"spot_market_vault"`). Creates Drift user stats, user, and spot market accounts. Only needs to be run once per vault.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `driftMarketIndex`
+  Uses: `ADMIN_FILE_PATH`
+
+- **`manager-deposit-user.ts`**
+  Deposits funds from the vault into the Drift "user" strategy (spot market defined by `driftMarketIndex`). Uses `@drift-labs/sdk` to build remaining accounts.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-withdraw-user.ts`**
+  Withdraws funds from the Drift "user" strategy back into the vault. Uses `@drift-labs/sdk` to build remaining accounts.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `withdrawStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-deposit-earn.ts`**
+  Deposits funds from the vault into the Drift "earn" strategy (spot market vault PDA). Uses `@drift-labs/sdk` to build remaining accounts.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-withdraw-earn.ts`**
+  Withdraws funds from the Drift "earn" strategy back into the vault. Uses `@drift-labs/sdk` to build remaining accounts.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `withdrawStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
 
 ### User Scripts
 
-*   **`src/scripts/user-deposit-vault.ts`**
-    *   Deposits a specified amount (`depositAmountVault`) of the vault's asset token from the User's account into the vault, receiving LP tokens in return.
-    *   Handles wSOL wrapping/unwrapping if `assetMintAddress` is the native SOL mint.
-    *   Requires `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositAmountVault` in `base.ts`.
-    *   Uses `USER_FILE_PATH`.
+- **`user-deposit-vault.ts`**
+  Deposits `depositAmountVault` of the vault's asset into the vault, receiving LP tokens. Handles wSOL wrapping if `assetMintAddress` is the native SOL mint.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositAmountVault`
+  Uses: `USER_FILE_PATH`
 
-*   **`src/scripts/user-request-withdraw-vault.ts`**
-    *   Initiates a withdrawal request for the User. Fails if another request is pending.
-    *   Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll` from `base.ts`.
-    *   Requires `vaultAddress` in `base.ts`.
-    *   Uses `USER_FILE_PATH`.
+- **`user-request-withdraw-vault.ts`**
+  Initiates a withdrawal request. Only one pending request is allowed at a time. Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll`.
+  Requires: `vaultAddress`
+  Uses: `USER_FILE_PATH`
 
-*   **`src/scripts/user-withdraw-vault.ts`**
-    *   Completes a previously requested withdrawal after any waiting period has passed. Fails if no request was made or the waiting period isn't over.
-    *   Handles wSOL unwrapping if necessary.
-    *   Requires `vaultAddress`, `assetMintAddress`, `assetTokenProgram` in `base.ts`.
-    *   Uses `USER_FILE_PATH`.
+- **`user-withdraw-vault.ts`**
+  Completes a previously requested withdrawal after the `withdrawalWaitingPeriod` has elapsed. Handles wSOL unwrapping if needed.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`
+  Uses: `USER_FILE_PATH`
 
-*   **`src/scripts/user-instant-withdraw-vault.ts`**
-    *   Performs an instant withdrawal from the vault in a single transaction.
-    *   Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll` from `base.ts`.
-    *   Requires `vaultAddress`, `assetMintAddress`, `assetTokenProgram` in `base.ts`.
-    *   Uses `USER_FILE_PATH`.
+- **`user-instant-withdraw-vault.ts`**
+  Performs an immediate single-transaction withdrawal. Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll`. Handles wSOL unwrapping if needed.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`
+  Uses: `USER_FILE_PATH`
+
+- **`user-cancel-request-withdraw-vault.ts`**
+  Cancels an outstanding withdrawal request. Fails if no pending request exists.
+  Requires: `vaultAddress`
+  Uses: `USER_FILE_PATH`
 
 ### Query Scripts
 
-*   **`src/scripts/user-query-position.ts`**
-    *   Fetches the User's current LP token balance and calculates the approximate equivalent value in the underlying vault asset (both before and after potential withdrawal fees/degradation).
-    *   Requires `vaultAddress` in `base.ts`.
-    *   Uses `USER_FILE_PATH`.
+- **`user-query-position.ts`**
+  Fetches the user's LP token balance and calculates the equivalent underlying asset value — both before and after redemption fees and locked profit degradation.
+  Requires: `vaultAddress`
+  Uses: `USER_FILE_PATH`
 
-*   **`src/scripts/query-strategy-positions.ts`**
-    *   Fetches the vault account data, displays the total asset value, and lists any initialized strategy allocations (showing strategy address and position value).
-    *   Requires `vaultAddress` in `base.ts`.
-    *   Uses `ADMIN_FILE_PATH` (implicitly via RPC connection, though no signing needed).
+- **`query-strategy-positions.ts`**
+  Fetches the vault's total asset value and lists all initialized strategy allocations with their strategy address and position value.
+  Requires: `vaultAddress`
 
 ---
 
-## Basic Usage Flow
+## Usage Flows
 
-1.  **Configure Environment:** Set the `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`, `USER_FILE_PATH`, and `HELIUS_RPC_URL` environment variables.
-2.  **Configure Vault Parameters:** Edit `config/base.ts`. Fill in `vaultConfig`, `vaultParams`, `assetMintAddress`, `assetTokenProgram`. Decide on `useLookupTable`. Leave `vaultAddress` and `lookupTableAddress` empty for now.
-3.  **Initialize Vault (Admin):**
-    ```bash
-    pnpm ts-node src/scripts/admin-init-vault.ts
-    ```
-4.  **Update Config:** Copy the outputted `Vault:` and `Lookup Table:` (if used) addresses and paste them into the `vaultAddress` and `lookupTableAddress` fields in `config/base.ts`.
-5.  **Update Vault (Admin, Optional):** If you need to change config after init:
-    ```bash
-    pnpm ts-node src/scripts/admin-update-vault.ts
-    ```
-6.  **Deposit (User):** Set `depositAmountVault` in `config/base.ts`.
-    ```bash
-    pnpm ts-node src/scripts/user-deposit-vault.ts
-    ```
-7.  **Check Position (User):**
-    ```bash
-    pnpm ts-node src/scripts/user-query-position.ts
-    ```
-8.  **Withdraw (User):** Set withdrawal parameters (`withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll`) in `config/base.ts`.
-    *   **If `withdrawalWaitingPeriod` > 0:**
-        ```bash
-        # Step 1: Request
-        pnpm ts-node src/scripts/user-request-withdraw-vault.ts
-        # Step 2: Wait for the period, then withdraw
-        pnpm ts-node src/scripts/user-withdraw-vault.ts
-        ```
-    *   **Instant withdraw:**
-        ```bash
-        pnpm ts-node src/scripts/user-instant-withdraw-vault.ts
-        ```
-9.  **Harvest Fees (Admin):**
-    ```bash
-    pnpm ts-node src/scripts/admin-harvest-fee.ts
-    ```
-10. **Query Strategies (Admin/General):**
-    ```bash
-    pnpm ts-node src/scripts/query-strategy-positions.ts
-    ```
+### Basic Vault Flow
+
+1. Set environment variables and edit `config/base.ts` with `vaultConfig`, `vaultParams`, `assetMintAddress`, `assetTokenProgram`.
+
+2. Initialize the vault:
+   ```bash
+   pnpm ts-node src/scripts/admin-init-vault.ts
+   ```
+   Copy the output `Vault:` and `LUT:` addresses into `config/base.ts`.
+
+3. (Optional) Set LP token metadata:
+   ```bash
+   pnpm ts-node src/scripts/admin-set-token-metadata.ts
+   ```
+
+4. Deposit (User):
+   ```bash
+   pnpm ts-node src/scripts/user-deposit-vault.ts
+   ```
+
+5. Query position:
+   ```bash
+   pnpm ts-node src/scripts/user-query-position.ts
+   ```
+
+6. Withdraw:
+   - Instant:
+     ```bash
+     pnpm ts-node src/scripts/user-instant-withdraw-vault.ts
+     ```
+   - With waiting period:
+     ```bash
+     pnpm ts-node src/scripts/user-request-withdraw-vault.ts
+     # wait for withdrawalWaitingPeriod to elapse
+     pnpm ts-node src/scripts/user-withdraw-vault.ts
+     ```
+
+7. Harvest fees (Admin):
+   ```bash
+   pnpm ts-node src/scripts/admin-harvest-fee.ts
+   ```
+
+### Drift Strategy Flow
+
+Assumes the vault is already initialized and `config/base.ts` is fully configured.
+
+1. Configure `config/drift.ts`: set `driftMarketIndex` to match your vault's `assetMintAddress`, and set `depositStrategyAmount` / `withdrawStrategyAmount`.
+
+2. Add the Drift adaptor (Admin, once per vault):
+   ```bash
+   pnpm ts-node src/scripts/admin-add-adaptor.ts
+   ```
+
+3. Initialize the Drift strategy (once per vault). Choose the appropriate strategy type:
+   - **User strategy** (supports margin trading):
+     ```bash
+     pnpm ts-node src/scripts/manager-init-user.ts
+     ```
+   - **Earn strategy** (spot market vault, no margin):
+     ```bash
+     pnpm ts-node src/scripts/manager-init-earn.ts
+     ```
+
+4. (Optional) Initialize direct withdraw for the strategy:
+   ```bash
+   pnpm ts-node src/scripts/admin-init-direct-withdraw.ts
+   ```
+
+5. Deposit vault funds into the Drift strategy (Manager):
+   - User strategy: `pnpm ts-node src/scripts/manager-deposit-user.ts`
+   - Earn strategy: `pnpm ts-node src/scripts/manager-deposit-earn.ts`
+
+6. Query strategy positions:
+   ```bash
+   pnpm ts-node src/scripts/query-strategy-positions.ts
+   ```
+
+7. Withdraw from the Drift strategy back to the vault (Manager):
+   - User strategy: `pnpm ts-node src/scripts/manager-withdraw-user.ts`
+   - Earn strategy: `pnpm ts-node src/scripts/manager-withdraw-earn.ts`
 
 ---
 
 ## Project Structure
 
 ```
-voltr-base-scripts
+.
 ├── config/
-│   └── base.ts           # Main configuration file
+│   ├── base.ts                              # Base vault configuration
+│   └── drift.ts                             # Drift strategy configuration
 ├── src/
 │   ├── constants/
-│   │   └── base.ts         # Base constants (e.g., PROTOCOL_ADMIN)
+│   │   ├── base.ts                          # Protocol admin address
+│   │   └── drift.ts                         # Drift program IDs, market indices, discriminators
 │   ├── utils/
-│   │   └── helper.ts       # Utility functions (transactions, ATAs, LUTs)
-│   └── scripts/            # Executable scripts for vault interactions
-│       ├── admin-*.ts      # Scripts requiring Admin keypair
-│       ├── user-*.ts       # Scripts requiring User keypair
-│       └── query-*.ts      # Scripts for querying state
-├── node_modules/           # Project dependencies
-├── pnpm-lock.yaml          # Dependency lockfile
-├── package.json            # Project metadata and dependencies
-├── tsconfig.json           # TypeScript compiler options
-└── README.md               # This file
+│   │   └── helper.ts                        # Tx sending, ATA setup, LUT utilities
+│   └── scripts/
+│       ├── admin-init-vault.ts
+│       ├── admin-init-vault-and-set-token-metadata.ts
+│       ├── admin-set-token-metadata.ts
+│       ├── admin-update-vault-config.ts
+│       ├── admin-accept-vault-admin.ts
+│       ├── admin-harvest-fee.ts
+│       ├── admin-add-adaptor.ts
+│       ├── admin-init-direct-withdraw.ts
+│       ├── manager-init-user.ts
+│       ├── manager-init-earn.ts
+│       ├── manager-deposit-user.ts
+│       ├── manager-withdraw-user.ts
+│       ├── manager-deposit-earn.ts
+│       ├── manager-withdraw-earn.ts
+│       ├── user-deposit-vault.ts
+│       ├── user-request-withdraw-vault.ts
+│       ├── user-withdraw-vault.ts
+│       ├── user-instant-withdraw-vault.ts
+│       ├── user-cancel-request-withdraw-vault.ts
+│       ├── user-query-position.ts
+│       └── query-strategy-positions.ts
+├── .env.example
+├── package.json
+├── tsconfig.json
+└── pnpm-lock.yaml
 ```
 
 ---
 
-## Development
+## Dependencies
 
-### Core Dependencies
+**Runtime:**
+- `@coral-xyz/anchor` — Anchor framework for Solana programs
+- `@solana/web3.js` — core Solana SDK
+- `@solana/spl-token` — SPL Token utilities
+- `@voltr/vault-sdk` — Voltr Vault SDK
+- `@drift-labs/sdk` — Drift Protocol SDK (used for remaining accounts in strategy scripts)
+- `bs58` — Base58 encoding
+- `dotenv` — environment variable loading
 
-*   `@coral-xyz/anchor`: For interacting with Anchor programs.
-*   `@solana/web3.js`: Core Solana JavaScript SDK.
-*   `@solana/spl-token`: Utilities for SPL Tokens.
-*   `@voltr/vault-sdk`: The official SDK for interacting with Voltr Vaults.
-*   `bs58`: Base58 encoding/decoding.
-
-### Development Dependencies
-
-*   `typescript`: TypeScript language support.
-*   `ts-node`: Execute TypeScript files directly.
-*   `@types/*`: Type definitions for Node.js and libraries.
-
-Feel free to extend these base scripts for more specific use cases or integrations.
+**Dev:**
+- `typescript`, `ts-node`, `@types/node`, `@types/bn.js`
 
 ---
 
-For questions or support regarding the Voltr protocol itself, please refer to the official Voltr documentation.
-
----
-
-## Drift Strategy Extensions (voltr-drift-scripts)
-
-The following sections detail the additions specific to the `voltr-drift-scripts` project, which builds upon the base functionality to include Drift spot market strategy interactions.
-
-### Additional Configuration (`config/drift.ts`)
-
-This file complements `config/base.ts` and holds parameters specific to the Drift strategy.
-
-- **Strategy Action Parameters:**
-
-  - `depositStrategyAmount`: **Required.** The amount of the **vault's base asset** (defined in `config/base.ts`) to deposit into the Drift strategy, denominated in the smallest units of the base asset (e.g., 1,000,000 for 1 USDC).
-  - `withdrawStrategyAmount`: **Required.** The amount of the **vault's base asset** to withdraw from the Drift strategy, denominated in the smallest units of the base asset.
-
-- **Drift Variables:**
-  - `driftMarketIndex`: **Required.** The numerical index of the Drift spot market to interact with (e.g., `DRIFT.SPOT.USDC.MARKET_INDEX`). Ensure this aligns with the vault's `assetMintAddress` from `config/base.ts`, as **no automatic swaps** are performed by these scripts. Refer to `src/constants/drift.ts` for available market indices and their corresponding assets.
-
-### New Admin Script
-
-- **`src/scripts/admin-add-adaptor.ts`**
-  - **Purpose:** Enables the vault to use Drift strategies by adding the official Voltr Drift Adaptor program (`ADAPTOR_PROGRAM_ID` found in `src/constants/drift.ts`) to the vault's list of approved adaptors. This only needs to be run once per vault.
-  - **Requires:** `vaultAddress` (from `config/base.ts`).
-  - **Uses:** `ADMIN_FILE_PATH`. May update the vault's LUT if `useLookupTable` is true.
-
-### New Manager Scripts
-
-These scripts are executed by the vault's designated Manager.
-
-- **`src/scripts/manager-init-user.ts`**
-
-  - **Purpose:** Initializes the necessary on-chain accounts for the vault to interact with the Drift protocol via the Voltr Drift Adaptor. This creates the Voltr strategy account PDA, the Drift user account PDA (tied to the vault's strategy authority), and associated token accounts. This only needs to be run once per vault.
-  - **Requires:** `vaultAddress`, `assetMintAddress`, `assetTokenProgram` (from `config/base.ts`). Also requires Drift constants like `DRIFT.PROGRAM_ID`, `DRIFT.SPOT.STATE`, `DRIFT.SUB_ACCOUNT_ID`, and the `ADAPTOR_PROGRAM_ID` from `src/constants/drift.ts`. The vault's `name` from `config/base.ts` `vaultParams` is used internally.
-  - **Outputs:** Logs the transaction signature upon successful initialization.
-  - **Uses:** `MANAGER_FILE_PATH`. May update the vault's LUT if `useLookupTable` is true.
-
-- **`src/scripts/manager-deposit-user.ts`**
-
-  - **Purpose:** Deposits funds _from_ the vault _into_ the initialized Drift strategy, specifically depositing into the spot market defined by `driftMarketIndex`.
-  - **No Swaps:** This script **does not perform swaps**. It assumes the vault's `assetMintAddress` (from `config/base.ts`) is the correct asset for the specified `driftMarketIndex` (in `config/drift.ts`).
-  - **Requires:** `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `lookupTableAddress` (if used) from `config/base.ts`. Also requires `depositStrategyAmount`, `driftMarketIndex` from `config/drift.ts`, and relevant Drift constants and PDAs (derived internally, utilizes `@drift-labs/sdk` for remaining accounts).
-  - **Uses:** `MANAGER_FILE_PATH`.
-
-- **`src/scripts/manager-withdraw-user.ts`**
-  - **Purpose:** Withdraws funds _from_ the Drift strategy (specifically the spot market defined by `driftMarketIndex`) _back into_ the main vault account.
-  - **No Swaps:** This script **does not perform swaps**. The withdrawn asset is assumed to be the vault's base asset.
-  - **Requires:** `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `lookupTableAddress` (if used) from `config/base.ts`. Also requires `withdrawStrategyAmount`, `driftMarketIndex` from `config/drift.ts`, and relevant Drift constants and PDAs (derived internally, utilizes `@drift-labs/sdk` for remaining accounts).
-  - **Uses:** `MANAGER_FILE_PATH`.
-
-### Drift Strategy Flow
-
-This outlines the typical sequence for setting up and managing the Drift strategy:
-
-1.  **Complete Basic Vault Setup:** Follow steps 1-4 in the [Basic Usage Flow](#basic-usage-flow) to initialize the vault and configure `config/base.ts`. Ensure `assetMintAddress` matches the Drift market you intend to use (e.g., USDC).
-2.  **Configure Drift Parameters:** Edit `config/drift.ts`. Define `depositStrategyAmount`, `withdrawStrategyAmount`, and crucially, the correct `driftMarketIndex` corresponding to your vault's asset.
-3.  **Add Drift Adaptor (Admin):** Run `pnpm ts-node src/scripts/admin-add-adaptor.ts` to authorize the vault to use the Drift adaptor.
-4.  **Initialize Drift User Strategy (Manager):** Run `pnpm ts-node src/scripts/manager-init-user.ts` to set up the on-chain accounts for Drift interaction.
-5.  **Ensure Vault has Funds:** Use `user-deposit-vault.ts` (as the User) if the vault needs funds.
-6.  **Deposit into Drift Strategy (Manager):** Run `pnpm ts-node src/scripts/manager-deposit-user.ts` to allocate funds from the vault to the specified Drift spot market.
-7.  **Query Positions:** Use `query-strategy-positions.ts` to see the updated allocation in the Drift strategy.
-8.  **(Optional) Withdraw from Drift Strategy (Manager):** Run `pnpm ts-node src/scripts/manager-withdraw-user.ts` to bring funds back from the Drift spot market into the vault.
-9.  **(Optional) User Withdrawal:** Users can withdraw from the vault as usual using the `user-*` withdrawal scripts. The vault program handles interactions with the strategy if necessary.
-
-### Protocol Integration Details
-
-- **Drift Protocol:** The scripts interact with the Drift Protocol's spot markets via the Voltr Drift Adaptor (`EBN9...`). The necessary program IDs, state accounts, and market indices are defined in `src/constants/drift.ts`. The manager scripts (`manager-deposit-user`, `manager-withdraw-user`) utilize the `@drift-labs/sdk` to correctly format instructions and gather necessary remaining accounts for interacting with Drift.
-- **No Swaps:** It's critical to understand that these scripts assume the vault's base asset (`assetMintAddress` in `config/base.ts`) directly corresponds to the asset of the `driftMarketIndex` chosen in `config/drift.ts`. No automatic asset conversion (swapping) is implemented.
-
-### Updated Project Structure (voltr-drift-scripts)
-
-```
-voltr-drift-scripts
-├── pnpm-lock.yaml
-├── config/
-│   ├── base.ts             # Base vault configuration
-│   └── drift.ts            # DRIFT ADAPTOR: Drift strategy config
-├── README.md               # This file (now including Drift extensions)
-├── package.json            # Project metadata and dependencies
-├── tsconfig.json           # TypeScript compiler options
-└── src
-    ├── constants/
-    │   ├── base.ts         # Base constants (e.g., PROTOCOL_ADMIN)
-    │   └── drift.ts        # DRIFT ADAPTOR: Drift constants (program IDs, markets, adaptor, discriminators)
-    ├── utils/
-    │   └── helper.ts       # Core utility functions (tx sending, ATAs, LUTs)
-    └── scripts/            # Executable scripts
-        ├── user-withdraw-vault.ts
-        ├── user-query-position.ts
-        ├── query-strategy-positions.ts
-        ├── manager-init-user.ts # DRIFT ADAPTOR: Initializes Drift strategy user
-        ├── admin-update-vault.ts
-        ├── manager-deposit-user.ts # DRIFT ADAPTOR: Deposits vault funds into Drift strategy
-        ├── user-request-and-withdraw-vault.ts
-        ├── admin-harvest-fee.ts
-        ├── user-deposit-vault.ts
-        ├── manager-withdraw-user.ts # DRIFT ADAPTOR: Withdraws funds from Drift strategy to vault
-        ├── admin-init-vault.ts
-        ├── admin-add-adaptor.ts # DRIFT ADAPTOR: Adds the Drift adaptor to the vault
-        ├── user-cancel-request-withdraw-vault.ts
-        └── user-request-withdraw-vault.ts
-```
+For questions about the Voltr protocol, refer to the official Voltr documentation.
