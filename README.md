@@ -19,6 +19,7 @@ A set of TypeScript scripts for interacting with the Voltr Vault protocol on Sol
 - [Usage Flows](#usage-flows)
   - [Basic Vault Flow](#basic-vault-flow)
   - [Drift Strategy Flow](#drift-strategy-flow)
+  - [Delta-Neutral Funding Rate Strategy Flow](#delta-neutral-funding-rate-strategy-flow)
 - [Project Structure](#project-structure)
 - [Dependencies](#dependencies)
 
@@ -126,6 +127,18 @@ Edit this file before running any scripts.
 
 - **`directWithdrawDiscriminator`** — instruction discriminator bytes used by `admin-init-direct-withdraw.ts`
 
+- **`perpMarketIndex`** — target perpetual market for the delta-neutral strategy. Defaults to `DRIFT.PERP.SOL.MARKET_INDEX` (SOL-PERP, index 1). Change to `DRIFT.PERP.BTC.MARKET_INDEX` (index 2) for BTC-PERP.
+
+- **`shortPerpSizeRatio`** — fraction of vault NAV to deploy as short perp notional (default `0.40`)
+
+- **`bufferRatio`** — fraction of vault NAV to hold as liquid USDC buffer (default `0.10`)
+
+- **`rebalanceThresholdPct`** — delta deviation percentage that triggers a rebalance (default `2`)
+
+- **`minMarginHealthRatio`** — margin health floor below which short increases are blocked and reductions are triggered (default `1.5`)
+
+- **`perpOrderSize`** — base order size in the perp market's base asset units. Default is `1_000_000_000` (1 SOL at 9 decimals). Adjust before running open/rebalance scripts.
+
 > No swaps are performed. The vault's `assetMintAddress` must directly match the asset of the chosen `driftMarketIndex`.
 
 ---
@@ -208,6 +221,26 @@ pnpm ts-node src/scripts/<script-name>.ts
 - **`manager-withdraw-earn.ts`**
   Withdraws funds from the Drift "earn" strategy back into the vault. Uses `@drift-labs/sdk` to build remaining accounts.
   Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `withdrawStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-open-short-perp.ts`**
+  Opens a short perpetual position on Drift via `placeAndTakePerpOrder`. Uses `perpMarketIndex` and `perpOrderSize` from `config/drift.ts`. Part of the delta-neutral funding rate strategy.
+  Requires: `vaultAddress`, `perpMarketIndex`, `perpOrderSize`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-close-short-perp.ts`**
+  Closes the current short perp position by submitting a reduce-only LONG order of equal size. Exits cleanly if no position exists.
+  Requires: `vaultAddress`, `perpMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-rebalance-delta.ts`**
+  Reads current spot and perp positions, computes delta, and adjusts the short if deviation exceeds `rebalanceThresholdPct`. Checks margin health before acting — blocks short increases below `minMarginHealthRatio`, and submits a reduce-only 50% order if health drops below 1.2.
+  Requires: `vaultAddress`, `perpMarketIndex`, `rebalanceThresholdPct`, `minMarginHealthRatio`, `lookupTableAddress` (if `useLookupTable`)
+  Uses: `MANAGER_FILE_PATH`
+
+- **`manager-compound-yield.ts`**
+  Computes withdrawable yield (free collateral above the margin safety floor), withdraws it from Drift, and re-deposits it into the spot market to compound returns. No-ops if no yield is available.
+  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `driftMarketIndex`, `perpMarketIndex`, `minMarginHealthRatio`, `lookupTableAddress` (if `useLookupTable`)
   Uses: `MANAGER_FILE_PATH`
 
 ### User Scripts
@@ -335,6 +368,42 @@ Assumes the vault is already initialized and `config/base.ts` is fully configure
 
 ---
 
+### Delta-Neutral Funding Rate Strategy Flow
+
+This strategy deploys USDC in a 50/40/10 split: 50% to Drift spot USDC lending, 40% as margin for a short SOL-PERP (or BTC-PERP) position, and 10% held as a liquid buffer. Yield comes from perpetual funding rate payments and USDC lending interest simultaneously. Target blended APY: 18–40%.
+
+**Prerequisites:** vault initialized, Drift user strategy initialized with `enableMarginTrading: true`, funds deposited into the Drift spot market via `manager-deposit-user.ts`.
+
+**Configure `config/drift.ts`:**
+- Set `perpMarketIndex` (default: SOL-PERP index 1)
+- Set `perpOrderSize` to the desired order size in base asset units (default: 1 SOL = `1_000_000_000`)
+- Tune `shortPerpSizeRatio`, `bufferRatio`, `rebalanceThresholdPct`, `minMarginHealthRatio` as needed
+
+**Open the position:**
+```bash
+pnpm ts-node src/scripts/manager-open-short-perp.ts
+```
+
+**Rebalance delta (run periodically):**
+```bash
+pnpm ts-node src/scripts/manager-rebalance-delta.ts
+```
+Adjusts the short size if delta deviation exceeds `rebalanceThresholdPct`. Automatically de-risks if margin health is low.
+
+**Compound yield (run periodically):**
+```bash
+pnpm ts-node src/scripts/manager-compound-yield.ts
+```
+Withdraws free collateral above the margin safety floor and re-deposits it to grow the position over time.
+
+**Close the position (before full vault withdrawal):**
+```bash
+pnpm ts-node src/scripts/manager-close-short-perp.ts
+```
+Fully closes the short perp position. Then run `manager-withdraw-user.ts` to return funds to the vault.
+
+---
+
 ## Project Structure
 
 ```
@@ -363,6 +432,10 @@ Assumes the vault is already initialized and `config/base.ts` is fully configure
 │       ├── manager-withdraw-user.ts
 │       ├── manager-deposit-earn.ts
 │       ├── manager-withdraw-earn.ts
+│       ├── manager-open-short-perp.ts
+│       ├── manager-close-short-perp.ts
+│       ├── manager-rebalance-delta.ts
+│       ├── manager-compound-yield.ts
 │       ├── user-deposit-vault.ts
 │       ├── user-request-withdraw-vault.ts
 │       ├── user-withdraw-vault.ts
