@@ -5,6 +5,7 @@ import { alignDataSeries } from "./align";
 import { simulate } from "./simulator";
 import { computeMetrics, evaluatePassCriteria } from "./metrics";
 import { runGridSearch } from "./grid-search";
+import { generateReport } from "./report";
 import {
   shortPerpSizeRatio,
   bufferRatio,
@@ -150,6 +151,26 @@ async function main() {
       );
     }
     console.log(`\nResults written to ${outputDir}/`);
+
+    // Generate report using the best-performing combination's simulation
+    const best = results.sort((a, b) => b.blendedAPY - a.blendedAPY)[0];
+    if (best) {
+      const bestTicks = alignDataSeries(funding, lending, prices, startTs, endTs);
+      const bestSnapshots = simulate({
+        initialCapital: 100_000,
+        bufferRatio,
+        shortPerpSizeRatio: best.shortPerpSizeRatio,
+        rebalanceThresholdPct: best.rebalanceThresholdPct,
+        minMarginHealthRatio: best.minMarginHealthRatio,
+      }, bestTicks);
+      const bestMetrics = computeMetrics(bestSnapshots);
+      const { passed, failures } = evaluatePassCriteria(bestMetrics);
+      const reportPath = generateReport({
+        snapshots: bestSnapshots, metrics: bestMetrics, passed, failures,
+        market, months, gridResults: results, outputDir,
+      });
+      console.log(`Report: ${reportPath}`);
+    }
   } else {
     // Step 4a — Single run (Requirement 7.2)
     const ticks = alignDataSeries(funding, lending, prices, startTs, endTs);
@@ -189,6 +210,11 @@ async function main() {
     } else {
       console.log(`\nFAIL: ${failures.join("; ")}`);
     }
+
+    const reportPath = generateReport({
+      snapshots, metrics, passed, failures, market, months, outputDir,
+    });
+    console.log(`\nReport: ${reportPath}`);
   }
 }
 
