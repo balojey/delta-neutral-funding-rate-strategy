@@ -51,6 +51,12 @@ export const sendAndConfirmOptimisedTx = async (
 
     const requiredCUs = rpcResponse.value.unitsConsumed;
 
+    if (rpcResponse.value.err) {
+      throw new Error(
+        `Transaction simulation failed: ${JSON.stringify(rpcResponse.value.err)}\nLogs:\n${(rpcResponse.value.logs ?? []).join("\n")}`
+      );
+    }
+
     if (!requiredCUs) {
       throw new Error("Failed to get required CUs");
     }

@@ -30,8 +30,8 @@ export const lpTokenMetadata = {
 };
 
 // MAIN ASSET DEPOSITED INTO VAULT
-export const assetMintAddress = "";
-export const assetTokenProgram = ""; // TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID
+export const assetMintAddress = "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr"; // devnet USDC
+export const assetTokenProgram = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"; // TOKEN_PROGRAM_ID
 
 // TO FILL UP AFTER INIT VAULT
 export const vaultAddress = "";
