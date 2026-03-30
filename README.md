@@ -21,6 +21,7 @@ A set of TypeScript scripts for interacting with the Voltr Vault protocol on Sol
   - [Drift Strategy Flow](#drift-strategy-flow)
   - [Delta-Neutral Funding Rate Strategy Flow](#delta-neutral-funding-rate-strategy-flow)
 - [Project Structure](#project-structure)
+- [Delta-Neutral Backtest Toolkit](#delta-neutral-backtest-toolkit)
 - [Dependencies](#dependencies)
 
 ---
@@ -447,6 +448,89 @@ Fully closes the short perp position. Then run `manager-withdraw-user.ts` to ret
 ├── package.json
 ├── tsconfig.json
 └── pnpm-lock.yaml
+```
+
+---
+
+## Delta-Neutral Backtest Toolkit
+
+A standalone TypeScript simulation toolkit in `backtest/` that measures the historical performance of the 50/40/10 delta-neutral funding rate strategy using real Drift Protocol mainnet data. No on-chain interaction occurs — it runs entirely offline.
+
+### What it does
+
+- Fetches and caches historical funding rates from the Drift S3 bucket (daily CSV files)
+- Fetches and caches hourly SOL/USD prices from the Binance public API
+- Falls back to a constant 5% APY for USDC lending rates (Drift S3 lending data unavailable)
+- Runs a tick-by-tick hourly NAV simulation: spot yield accrual, funding payments, mark-to-market, delta rebalancing, margin health checks
+- Computes blended APY, Sharpe ratio, max drawdown, rebalance count, margin health breaches
+- Evaluates go/no-go pass criteria: APY > 15%, drawdown < 10%, zero margin breaches below 1.2
+- Optionally sweeps a 192-combination parameter grid (6 × 4 × 4 × 2) and writes CSV + JSON results
+- Generates a self-contained HTML report with interactive charts (NAV vs price, drawdown, funding income, grid scatter)
+
+### Usage
+
+```bash
+# Single run — default params from config/drift.ts
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --months 3
+
+# Explicit date range (YYYY-MM-DD)
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01
+
+# Grid search over all 192 parameter combinations
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --grid
+```
+
+**CLI options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--market` | `SOL-PERP` | Market to backtest (`SOL-PERP` or `BTC-PERP`) |
+| `--months` | `12` | Lookback window in months (used when `--from` is not set) |
+| `--from` | — | Start date `YYYY-MM-DD` (overrides `--months`) |
+| `--to` | `2025-01-09` | End date `YYYY-MM-DD` (S3 data ceiling) |
+| `--grid` | `false` | Run full 192-combination grid search |
+
+**Cache:** All fetched data is cached in `backtest/data/` as JSON files keyed by market and date range. Delete a file to force a refresh:
+```bash
+rm backtest/data/*.json
+```
+
+**Outputs** (written to `backtest/results/`):
+- `report.html` — interactive HTML report with charts (open in any browser)
+- `grid-search-results.csv` — one row per parameter combination (grid mode only)
+- `grid-search-summary.json` — top-5 configurations by APY, filtered by drawdown < 10% and zero 1.2 breaches (grid mode only)
+
+### Data sources
+
+| Data | Source | Notes |
+|---|---|---|
+| Funding rates | Drift S3 (`fundingRateRecords/{YYYY}/{YYYYMMDD}`) | Available 2022–Jan 2025 |
+| SOL/USD prices | Binance public API (`SOLUSDT` 1h klines) | No auth required |
+| USDC lending rates | Constant 5% APY fallback | Drift S3 lending data not available |
+
+### Interpreting results
+
+- **Blended APY** is annualised from the simulation window — a 3-month bull run will produce inflated numbers
+- **Max drawdown** captures intra-period dips from the short losing money during price pumps
+- **The strategy is designed for sideways/mildly bullish markets** — strong bull runs (e.g. Oct–Jan 2025 when SOL +80%) will exceed the 10% drawdown threshold
+- For representative results, test a range-bound period (e.g. `--from 2024-04-01 --to 2024-07-01`)
+
+### Backtest structure
+
+```
+backtest/
+├── types.ts                  # Shared interfaces
+├── align.ts                  # Data alignment + lending interpolation
+├── fetch-funding-rates.ts    # Drift S3 daily CSV fetcher
+├── fetch-lending-rates.ts    # Lending rate fetcher (with fallback)
+├── fetch-prices.ts           # Binance klines fetcher
+├── simulator.ts              # Tick-by-tick NAV simulation engine
+├── metrics.ts                # APY, Sharpe, drawdown, pass/fail evaluation
+├── grid-search.ts            # 192-combination parameter sweep
+├── report.ts                 # HTML report generator
+├── run-backtest.ts           # CLI entry point
+├── data/                     # Cached JSON data files (gitignored)
+└── results/                  # Output files (gitignored)
 ```
 
 ---

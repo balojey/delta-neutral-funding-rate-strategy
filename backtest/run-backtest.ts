@@ -18,46 +18,60 @@ function parseArgs(argv: string[]): {
   market: "SOL-PERP" | "BTC-PERP";
   months: number;
   grid: boolean;
+  from?: string;
+  to?: string;
 } {
   let market: "SOL-PERP" | "BTC-PERP" = "SOL-PERP";
   let months = 12;
   let grid = false;
+  let from: string | undefined;
+  let to: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--market") {
       const val = argv[i + 1];
-      if (val === "SOL-PERP" || val === "BTC-PERP") {
-        market = val;
-        i++;
-      } else {
-        console.error(`Invalid --market value: ${val}. Must be SOL-PERP or BTC-PERP.`);
-        process.exit(1);
-      }
+      if (val === "SOL-PERP" || val === "BTC-PERP") { market = val; i++; }
+      else { console.error(`Invalid --market value: ${val}. Must be SOL-PERP or BTC-PERP.`); process.exit(1); }
     } else if (arg === "--months") {
       const val = Number(argv[i + 1]);
-      if (!isFinite(val) || val <= 0) {
-        console.error(`Invalid --months value: ${argv[i + 1]}. Must be a positive number.`);
-        process.exit(1);
-      }
-      months = val;
-      i++;
+      if (!isFinite(val) || val <= 0) { console.error(`Invalid --months value: ${argv[i + 1]}.`); process.exit(1); }
+      months = val; i++;
+    } else if (arg === "--from") {
+      from = argv[i + 1]; i++;
+    } else if (arg === "--to") {
+      to = argv[i + 1]; i++;
     } else if (arg === "--grid") {
       grid = true;
     }
   }
 
-  return { market, months, grid };
+  return { market, months, grid, from, to };
 }
 
 async function main() {
-  const { market, months, grid } = parseArgs(process.argv.slice(2));
+  const { market, months, grid, from, to } = parseArgs(process.argv.slice(2));
 
-  // The Drift S3 bucket lags real-time; clamp endTs to the latest known available date
-  // to avoid fetching empty date ranges. Update this constant as the bucket is refreshed.
+  // Resolve date range:
+  // --from / --to take priority; otherwise use --months lookback from S3_DATA_END
   const S3_DATA_END = Math.floor(new Date("2025-01-09T00:00:00Z").getTime() / 1000);
-  const endTs = Math.min(Math.floor(Date.now() / 1000), S3_DATA_END);
-  const startTs = endTs - months * 30 * 24 * 3600;
+
+  let endTs: number;
+  let startTs: number;
+
+  if (to) {
+    endTs = Math.floor(new Date(to + "T00:00:00Z").getTime() / 1000);
+    if (isNaN(endTs)) { console.error(`Invalid --to date: ${to}. Use YYYY-MM-DD.`); process.exit(1); }
+  } else {
+    endTs = Math.min(Math.floor(Date.now() / 1000), S3_DATA_END);
+  }
+
+  if (from) {
+    startTs = Math.floor(new Date(from + "T00:00:00Z").getTime() / 1000);
+    if (isNaN(startTs)) { console.error(`Invalid --from date: ${from}. Use YYYY-MM-DD.`); process.exit(1); }
+  } else {
+    startTs = endTs - months * 30 * 24 * 3600;
+  }
 
   const cacheDir = "backtest/data";
   const outputDir = "backtest/results";
