@@ -5,6 +5,6 @@
       "esModuleInterop": true,
       "strict": true,
     },
-    "include": ["src/**/*", "config/base.ts"]
+    "include": ["src/**/*", "config/base.ts", "backtest/**/*"]
   }
   
