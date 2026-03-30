@@ -21,7 +21,8 @@ import {
   useLookupTable,
 } from "../../config/base";
 import { depositStrategyAmount, driftMarketIndex } from "../../config/drift";
-import { ADAPTOR_PROGRAM_ID, DISCRIMINATOR, DRIFT } from "../constants/drift";
+import { ADAPTOR_PROGRAM_ID, DISCRIMINATOR } from "../constants/drift";
+import { driftEnv, DRIFT } from "../utils/cluster";
 import { DriftClient, Wallet } from "@drift-labs/sdk";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
@@ -88,7 +89,7 @@ const depositDriftStrategy = async (
   const driftClient = new DriftClient({
     connection,
     wallet: new Wallet(payerKp),
-    env: "mainnet-beta",
+    env: driftEnv,
     skipLoadUsers: true,
   });
 

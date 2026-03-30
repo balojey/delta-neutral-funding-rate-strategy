@@ -6,51 +6,51 @@ Minimal changes to make the full 8-step delta-neutral strategy lifecycle runnabl
 
 ## Tasks
 
-- [ ] 1. Add `driftEnv` export to `config/base.ts`
+- [x] 1. Add `driftEnv` export to `config/base.ts`
   - Import `DriftEnv` from `@drift-labs/sdk`
   - Add `export const driftEnv: DriftEnv = "mainnet-beta"` to `config/base.ts`
   - _Requirements: 2.3_
 
-- [ ] 2. Create `config/devnet.ts` with devnet-specific Drift constants
+- [x] 2. Create `config/devnet.ts` with devnet-specific Drift constants
   - Export `driftEnv: DriftEnv = "devnet"`
   - Export `DRIFT_DEVNET` object with `PROGRAM_ID`, `SPOT.STATE`, `LOOKUP_TABLE_ADDRESSES`, and oracle addresses matching devnet values
   - Add comment documenting the devnet USDC mint address and the required `assetMintAddress` value for `config/base.ts`
   - Add comments with airdrop commands for Admin, Manager, and User keypairs
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.3_
 
-- [ ] 3. Update manager scripts to import `driftEnv` from config
-  - [ ] 3.1 Update `src/scripts/manager-open-short-perp.ts`
+- [x] 3. Update manager scripts to import `driftEnv` from config
+  - [x] 3.1 Update `src/scripts/manager-open-short-perp.ts`
     - Add `import { driftEnv } from "../../config/base"` (replacing hardcoded `"mainnet-beta"`)
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.2 Update `src/scripts/manager-close-short-perp.ts`
+  - [x] 3.2 Update `src/scripts/manager-close-short-perp.ts`
     - Add `import { driftEnv } from "../../config/base"`
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.3 Update `src/scripts/manager-rebalance-delta.ts`
+  - [x] 3.3 Update `src/scripts/manager-rebalance-delta.ts`
     - Add `import { driftEnv } from "../../config/base"`
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.4 Update `src/scripts/manager-compound-yield.ts`
+  - [x] 3.4 Update `src/scripts/manager-compound-yield.ts`
     - Add `import { driftEnv } from "../../config/base"`
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.5 Update `src/scripts/manager-deposit-user.ts`
+  - [x] 3.5 Update `src/scripts/manager-deposit-user.ts`
     - Add `import { driftEnv } from "../../config/base"`
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.6 Update `src/scripts/manager-withdraw-user.ts`
+  - [x] 3.6 Update `src/scripts/manager-withdraw-user.ts`
     - Add `import { driftEnv } from "../../config/base"`
     - Pass `env: driftEnv` to the `DriftClient` constructor
     - _Requirements: 2.1, 2.2_
 
-- [ ] 4. Verify and test pure helper exports
-  - [ ] 4.1 Verify `shouldSubmitClose` is exported from `manager-close-short-perp.ts`
+- [x] 4. Verify and test pure helper exports
+  - [x] 4.1 Verify `shouldSubmitClose` is exported from `manager-close-short-perp.ts`
     - Confirm the function signature: `(perpPosition: { baseAssetAmount: BN } | null | undefined) => boolean`
     - Confirm it returns `false` for `null`, `false` for `baseAssetAmount` of zero, and `true` for non-zero
     - _Requirements: 9.3, 11.3, 11.4, 11.5_
@@ -61,7 +61,7 @@ Minimal changes to make the full 8-step delta-neutral strategy lifecycle runnabl
     - **Property 1: non-zero baseAssetAmount returns true** — `shouldSubmitClose({ baseAssetAmount: new BN(-1_000_000_000) }) === true`
     - **Validates: Requirements 9.3, 11.3, 11.4, 11.5**
 
-  - [ ] 4.3 Verify `shouldRebalance` is exported from `manager-rebalance-delta.ts`
+  - [x] 4.3 Verify `shouldRebalance` is exported from `manager-rebalance-delta.ts`
     - Confirm the function signature: `(spotNotional: number, perpNotional: number, totalNav: number) => boolean`
     - Confirm equal spot and perp notional returns `false` for any positive `totalNav`
     - _Requirements: 7.1, 11.2_
@@ -70,7 +70,7 @@ Minimal changes to make the full 8-step delta-neutral strategy lifecycle runnabl
     - **Property 2: zero delta never triggers rebalance** — `shouldRebalance(x, x, totalNav) === false` for any `totalNav > 0`
     - **Validates: Requirements 7.1, 11.2**
 
-  - [ ] 4.5 Verify `computeWithdrawable` is exported from `manager-compound-yield.ts`
+  - [x] 4.5 Verify `computeWithdrawable` is exported from `manager-compound-yield.ts`
     - Confirm the function signature: `(freeCollateral: BN, requiredMargin: BN) => BN`
     - Confirm result is always `>= 0` (clamps to zero when `freeCollateral < requiredMargin`)
     - _Requirements: 8.1, 8.4_
@@ -82,7 +82,7 @@ Minimal changes to make the full 8-step delta-neutral strategy lifecycle runnabl
     - Test: `computeWithdrawable(new BN(1_500), new BN(1_000)).eq(new BN(500)) === true`
     - **Validates: Requirements 8.1, 8.4**
 
-  - [ ] 4.7 Verify `getAction` is exported from `manager-rebalance-delta.ts`
+  - [x] 4.7 Verify `getAction` is exported from `manager-rebalance-delta.ts`
     - Confirm the function signature: `(healthRatio: number, positionSize: number) => { type: "reduce"; size: number; reduceOnly: true } | null`
     - Confirm it returns a non-null reduce action for `healthRatio < 1.2` and `null` at exactly `1.2`
     - _Requirements: 7.3_
@@ -93,7 +93,7 @@ Minimal changes to make the full 8-step delta-neutral strategy lifecycle runnabl
     - Test below: `getAction(1.19, 1_000_000_000) !== null`
     - **Validates: Requirements 7.3**
 
-- [ ] 5. Checkpoint — Ensure all types check and scripts are importable
+- [x] 5. Checkpoint — Ensure all types check and scripts are importable
   - Run `pnpm tsc --noEmit` to confirm no type errors across all modified files
   - Ensure all six manager scripts compile cleanly with the new `driftEnv` import
   - Ask the user if questions arise.

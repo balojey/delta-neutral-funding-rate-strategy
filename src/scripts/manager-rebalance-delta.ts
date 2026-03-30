@@ -6,7 +6,8 @@ import { BN } from "@coral-xyz/anchor";
 import { VoltrClient } from "@voltr/vault-sdk";
 import { vaultAddress, lookupTableAddress, useLookupTable } from "../../config/base";
 import { perpMarketIndex, rebalanceThresholdPct, minMarginHealthRatio } from "../../config/drift";
-import { ADAPTOR_PROGRAM_ID, DRIFT } from "../constants/drift";
+import { ADAPTOR_PROGRAM_ID } from "../constants/drift";
+import { driftEnv, DRIFT } from "../utils/cluster";
 import { DriftClient, OrderType, PositionDirection, Wallet } from "@drift-labs/sdk";
 
 const payerKpFile = fs.readFileSync(process.env.MANAGER_FILE_PATH!, "utf-8");
@@ -68,7 +69,7 @@ const rebalanceDelta = async (
   const driftClient = new DriftClient({
     connection,
     wallet: new Wallet(payerKp),
-    env: "mainnet-beta",
+    env: driftEnv,
     skipLoadUsers: true,
   });
 
