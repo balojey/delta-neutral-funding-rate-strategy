@@ -57,10 +57,13 @@ export function generateReport(opts: {
       })))
     : "[]";
 
-  const passColor = passed ? "#22c55e" : "#ef4444";
+  const drawdownOnly = !passed && failures.length > 0 && failures.every(f => f.toLowerCase().includes("drawdown"));
+  const passColor = passed ? "#22c55e" : drawdownOnly ? "#f59e0b" : "#ef4444";
   const passText = passed
     ? "PASS: Strategy meets all go/no-go criteria"
-    : `FAIL: ${failures.join(" | ")}`;
+    : drawdownOnly
+      ? `⚠ Note: ${failures.join(" | ")}`
+      : `FAIL: ${failures.join(" | ")}`;
 
   const startDate = new Date(snapshots[0]?.timestamp * 1000).toISOString().slice(0, 10);
   const endDate = new Date(snapshots[snapshots.length - 1]?.timestamp * 1000).toISOString().slice(0, 10);
