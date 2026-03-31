@@ -479,6 +479,10 @@ pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2
 # Explicit date range (YYYY-MM-DD) and capital
 pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --capital 500000
 
+or
+
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2023-01-01 --to 2023-11-03 --capital 500000
+
 # Grid search over all 192 parameter combinations
 pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --grid
 ```
