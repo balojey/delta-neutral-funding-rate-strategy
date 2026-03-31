@@ -489,6 +489,7 @@ pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2
 | `--from` | — | Start date `YYYY-MM-DD` (overrides `--months`) |
 | `--to` | `2025-01-09` | End date `YYYY-MM-DD` (S3 data ceiling) |
 | `--grid` | `false` | Run full 192-combination grid search |
+| `--capital` | `100000` | Initial capital in USD to simulate with |
 
 **Cache:** All fetched data is cached in `backtest/data/` as JSON files keyed by market and date range. Delete a file to force a refresh:
 ```bash

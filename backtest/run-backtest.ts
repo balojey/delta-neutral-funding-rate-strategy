@@ -6,6 +6,7 @@ import { simulate } from "./simulator";
 import { computeMetrics, evaluatePassCriteria } from "./metrics";
 import { runGridSearch } from "./grid-search";
 import { generateReport } from "./report";
+import { exec } from "child_process";
 import {
   shortPerpSizeRatio,
   bufferRatio,
@@ -20,12 +21,14 @@ function parseArgs(argv: string[]): {
   grid: boolean;
   from?: string;
   to?: string;
+  capital: number;
 } {
   let market: "SOL-PERP" | "BTC-PERP" = "SOL-PERP";
   let months = 12;
   let grid = false;
   let from: string | undefined;
   let to: string | undefined;
+  let capital = 100_000;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -41,16 +44,30 @@ function parseArgs(argv: string[]): {
       from = argv[i + 1]; i++;
     } else if (arg === "--to") {
       to = argv[i + 1]; i++;
+    } else if (arg === "--capital") {
+      const val = Number(argv[i + 1]);
+      if (!isFinite(val) || val <= 0) { console.error(`Invalid --capital value: ${argv[i + 1]}. Must be a positive number.`); process.exit(1); }
+      capital = val; i++;
     } else if (arg === "--grid") {
       grid = true;
     }
   }
 
-  return { market, months, grid, from, to };
+  return { market, months, grid, from, to, capital };
+}
+
+function openInBrowser(filePath: string) {
+  const cmd = process.platform === "win32"
+    ? `start "" "${filePath}"`
+    : process.platform === "darwin"
+    ? `open "${filePath}"`
+    : `xdg-open "${filePath}"`;
+  exec(cmd, (err) => { if (err) console.log(`[INFO] Could not auto-open report: ${err.message}`); });
+  setTimeout(() => process.exit(0), 500);
 }
 
 async function main() {
-  const { market, months, grid, from, to } = parseArgs(process.argv.slice(2));
+  const { market, months, grid, from, to, capital } = parseArgs(process.argv.slice(2));
 
   // Resolve date range:
   // --from / --to take priority; otherwise use --months lookback from S3_DATA_END
@@ -141,7 +158,7 @@ async function main() {
     };
 
     const results = await runGridSearch(
-      { initialCapital: 100_000, bufferRatio },
+      { initialCapital: capital, bufferRatio },
       dataByMarket,
       outputDir
     );
@@ -171,7 +188,7 @@ async function main() {
     if (best) {
       const bestTicks = alignDataSeries(funding, lending, prices, startTs, endTs);
       const bestSnapshots = simulate({
-        initialCapital: 100_000,
+        initialCapital: capital,
         bufferRatio,
         shortPerpSizeRatio: best.shortPerpSizeRatio,
         rebalanceThresholdPct: best.rebalanceThresholdPct,
@@ -184,13 +201,14 @@ async function main() {
         market, months, gridResults: results, outputDir,
       });
       console.log(`Report: ${reportPath}`);
+      openInBrowser(reportPath);
     }
   } else {
     // Step 4a — Single run (Requirement 7.2)
     const ticks = alignDataSeries(funding, lending, prices, startTs, endTs);
     const snapshots = simulate(
       {
-        initialCapital: 100_000,
+        initialCapital: capital,
         shortPerpSizeRatio,
         bufferRatio,
         rebalanceThresholdPct,
@@ -229,6 +247,7 @@ async function main() {
       snapshots, metrics, passed, failures, market, months, outputDir,
     });
     console.log(`\nReport: ${reportPath}`);
+    openInBrowser(reportPath);
   }
 }
 

@@ -10,8 +10,13 @@ function simulate(params: SimulatorParams, ticks: AlignedTick[]): TickSnapshot[]
     throw new Error("No aligned ticks for simulation");
   }
 
-  // Initialisation from first tick
-  let spotBalance = initialCapital * (1 - shortPerpSizeRatio - bufferRatio);
+  // Initialisation from first tick.
+  // The 50/40/10 split means:
+  //   - buffer: 10% held as liquid USDC
+  //   - spotBalance: 90% deployed as USDC collateral on Drift spot (backs both lending yield and the short margin)
+  //   - shortNotional: synthetic short exposure = 40% of initialCapital (not a separate cash bucket)
+  // At entry, NAV = spotBalance + buffer + unrealizedPnl(=0) = initialCapital
+  let spotBalance = initialCapital * (1 - bufferRatio);
   let shortNotional = initialCapital * shortPerpSizeRatio;
   let buffer = initialCapital * bufferRatio;
   let shortSizeInSol = shortNotional / ticks[0].solPrice;
@@ -44,6 +49,8 @@ function simulate(params: SimulatorParams, ticks: AlignedTick[]): TickSnapshot[]
     }
 
     // Step 4 — Unrealized P&L and NAV
+    // The short is a synthetic position backed by spot USDC collateral.
+    // unrealizedPnl = mark-to-market gain/loss on the short since last entry price reset.
     const unrealizedPnl = (entryPrice - tick.solPrice) * shortSizeInSol;
     const nav = spotBalance + buffer + unrealizedPnl;
 
