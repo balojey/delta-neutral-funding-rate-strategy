@@ -56,10 +56,14 @@ export function alignDataSeries(
   // Handle edge cases
   if (!funding.length || !lending.length || !prices.length) return [];
 
-  // Build a fast lookup for funding rates by timestamp
+  // Build a fast lookup for funding rates by timestamp.
+  // Drift settlement timestamps are not on clean hour boundaries, so we round
+  // each to the nearest hour to match Binance candle open timestamps.
   const fundingMap = new Map<number, number>();
   for (const f of funding) {
-    fundingMap.set(f.timestamp, f.fundingRate);
+    const roundedTs = Math.round(f.timestamp / 3600) * 3600;
+    // Last writer wins if two records round to the same hour — acceptable for hourly data
+    fundingMap.set(roundedTs, f.fundingRate);
   }
 
   // Sort lending records by timestamp for interpolation
@@ -88,9 +92,9 @@ export function alignDataSeries(
   // Build aligned ticks: price drives the timeline, funding must match exactly
   const ticks: AlignedTick[] = [];
   for (const price of windowPrices) {
-    const ts = price.timestamp;
+    const ts = Math.round(price.timestamp / 3600) * 3600;
     const fundingRate = fundingMap.get(ts);
-    if (fundingRate === undefined) continue; // skip if no exact funding match
+    if (fundingRate === undefined) continue; // skip if no funding match for this hour
 
     const lendingRate = interpolateLendingRate(ts, sortedLending);
 
