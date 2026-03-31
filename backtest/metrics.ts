@@ -5,16 +5,16 @@ function computeMetrics(snapshots: TickSnapshot[]): SimulationMetrics {
     throw new Error("Insufficient data: need >= 168 ticks");
   }
 
-  const totalHours = snapshots.length;
+  const totalHours = (snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp) / 3600;
   const initialNAV = snapshots[0].nav;
-  const finalNAV = snapshots[totalHours - 1].nav;
+  const finalNAV = snapshots[snapshots.length - 1].nav;
 
   // 1. Blended APY (Requirement 5.1)
   const blendedAPY = ((finalNAV / initialNAV) ** (8760 / totalHours) - 1) * 100;
 
   // 2. Sharpe Ratio (Requirement 5.2)
   const dailyNAVs: number[] = [];
-  for (let i = 0; i < totalHours; i += 24) {
+  for (let i = 0; i < snapshots.length; i += 24) {
     dailyNAVs.push(snapshots[i].nav);
   }
   const dailyReturns: number[] = [];
@@ -51,14 +51,15 @@ function computeMetrics(snapshots: TickSnapshot[]): SimulationMetrics {
   let worstWindow30dAPY: number;
   if (snapshots.length < windowSize) {
     // Use entire series as one window
-    const windowHours = snapshots.length;
+    const windowHours = (snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp) / 3600;
     worstWindow30dAPY =
-      ((snapshots[windowHours - 1].nav / snapshots[0].nav) ** (8760 / windowHours) - 1) * 100;
+      ((snapshots[snapshots.length - 1].nav / snapshots[0].nav) ** (8760 / windowHours) - 1) * 100;
   } else {
     worstWindow30dAPY = Infinity;
     for (let i = 0; i <= snapshots.length - windowSize; i++) {
+      const windowHours = (snapshots[i + windowSize - 1].timestamp - snapshots[i].timestamp) / 3600;
       const windowAPY =
-        ((snapshots[i + windowSize - 1].nav / snapshots[i].nav) ** (8760 / windowSize) - 1) * 100;
+        ((snapshots[i + windowSize - 1].nav / snapshots[i].nav) ** (8760 / windowHours) - 1) * 100;
       if (windowAPY < worstWindow30dAPY) worstWindow30dAPY = windowAPY;
     }
   }
