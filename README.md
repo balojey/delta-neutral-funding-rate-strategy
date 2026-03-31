@@ -237,6 +237,10 @@ pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2
 # With custom initial capital
 pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --capital 50000
 
+or
+
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2023-01-01 --to 2023-11-03 --capital 500000
+
 # Grid search — sweeps 192 parameter combinations to find the optimal config
 pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --grid
 ```
