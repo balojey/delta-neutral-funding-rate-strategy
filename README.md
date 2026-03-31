@@ -1,6 +1,6 @@
 # Voltr Vault Client Scripts
 
-A set of TypeScript scripts for interacting with the Voltr Vault protocol on Solana, including base vault operations and Drift spot market strategy integrations via the `@voltr/vault-sdk`.
+A TypeScript scripting toolkit for interacting with the Voltr Vault protocol on Solana. It provides operational scripts for three roles — admin, manager, and user — to manage yield vaults and deploy capital into DeFi strategies, with a focus on the delta-neutral funding rate strategy on Drift Protocol.
 
 ## Table of Contents
 
@@ -8,20 +8,12 @@ A set of TypeScript scripts for interacting with the Voltr Vault protocol on Sol
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration](#configuration)
-  - [Environment Variables](#environment-variables)
-  - [Base Config (`config/base.ts`)](#base-config-configbasets)
-  - [Drift Config (`config/drift.ts`)](#drift-config-configdriftts)
-- [Available Scripts](#available-scripts)
-  - [Admin Scripts](#admin-scripts)
-  - [Manager Scripts](#manager-scripts)
-  - [User Scripts](#user-scripts)
-  - [Query Scripts](#query-scripts)
-- [Usage Flows](#usage-flows)
-  - [Basic Vault Flow](#basic-vault-flow)
-  - [Drift Strategy Flow](#drift-strategy-flow)
-  - [Delta-Neutral Funding Rate Strategy Flow](#delta-neutral-funding-rate-strategy-flow)
+- [The Delta-Neutral Funding Rate Strategy](#the-delta-neutral-funding-rate-strategy)
+- [Running on Live Mainnet](#running-on-live-mainnet)
+- [Backtesting the Strategy](#backtesting-the-strategy)
+- [Running on Devnet](#running-on-devnet)
+- [Available Scripts Reference](#available-scripts-reference)
 - [Project Structure](#project-structure)
-- [Delta-Neutral Backtest Toolkit](#delta-neutral-backtest-toolkit)
 - [Dependencies](#dependencies)
 
 ---
@@ -35,17 +27,8 @@ This repository contains TypeScript scripts for interacting with Voltr Vaults on
 ## Prerequisites
 
 1. **Node.js v18+**
-
-2. **pnpm**
-   ```bash
-   npm install -g pnpm
-   ```
-
-3. **Solana Keypair files (JSON format)** for three roles:
-   - **Admin** — vault configuration and admin operations
-   - **Manager** — strategy management (deposit/withdraw into Drift)
-   - **User** — vault deposits and withdrawals
-
+2. **pnpm** — `npm install -g pnpm`
+3. **Solana keypair files (JSON format)** for three roles: Admin, Manager, User
 4. **Solana RPC URL** — a reliable endpoint (e.g. Helius)
 
 ---
@@ -77,331 +60,347 @@ HELIUS_RPC_URL="https://your-rpc-provider-url"
 
 ### Base Config (`config/base.ts`)
 
-Edit this file before running any scripts.
+Edit before running any scripts. Key fields:
 
-- **`vaultConfig`** — vault parameters used during initialization:
-  - `maxCap`: maximum total deposits (in base asset smallest units)
-  - `managerPerformanceFee` / `adminPerformanceFee`: fees in basis points (500 = 5%)
-  - `managerManagementFee` / `adminManagementFee`: annual management fees in basis points
-  - `lockedProfitDegradationDuration`: seconds over which locked profit is linearly released
-  - `redemptionFee`: one-time fee on withdrawal (basis points)
-  - `issuanceFee`: one-time fee on deposit (basis points)
-  - `withdrawalWaitingPeriod`: seconds a user must wait between requesting and completing a withdrawal
-
-- **`vaultParams`** — wraps `vaultConfig` with `name` and `description` strings
-
-- **`lpTokenMetadata`** — optional LP token metadata: `symbol`, `name`, `uri` (used by `admin-init-vault-and-set-token-metadata.ts` and `admin-set-token-metadata.ts`)
-
-- **`assetMintAddress`** — public key of the token deposited into the vault (e.g. USDC mint)
-
-- **`assetTokenProgram`** — token program governing the asset mint (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` for SPL Token, or Token-2022 program ID)
-
-- **`vaultAddress`** — leave empty initially; fill in after running `admin-init-vault.ts`
-
-- **`useLookupTable`** — set `true` to create and use an Address Lookup Table (LUT) for cheaper transactions
-
-- **`lookupTableAddress`** — leave empty initially; fill in after vault init if `useLookupTable` is `true`
-
-- **`depositAmountVault`** / **`withdrawAmountVault`** — amounts in smallest token units (e.g. `1_000_000` = 1 USDC)
-
-- **`isWithdrawAll`** — if `true`, withdraws the user's entire position
-
-- **`isWithdrawInLp`** — if `true`, `withdrawAmountVault` is interpreted as LP token amount; if `false`, as underlying asset amount
-
-- **`vaultConfigUpdateField`** / **`vaultConfigUpdateValue`** — field and value used by `admin-update-vault-config.ts`
+- `vaultAddress` — fill in after running `admin-init-vault.ts`
+- `assetMintAddress` — the token deposited into the vault (e.g. USDC mint)
+- `assetTokenProgram` — SPL Token or Token-2022 program ID
+- `depositAmountVault` / `withdrawAmountVault` — amounts in smallest token units
+- `useLookupTable` / `lookupTableAddress` — LUT for cheaper transactions
+- `vaultConfig` — fees, caps, waiting periods (all in basis points or seconds)
 
 ### Drift Config (`config/drift.ts`)
 
-- **`depositStrategyAmount`** — amount of the vault's base asset to deposit into the Drift strategy (smallest units)
+Key fields for the delta-neutral strategy:
 
-- **`withdrawStrategyAmount`** — amount to withdraw from the Drift strategy (smallest units)
-
-- **`driftMarketIndex`** — Drift spot market index to interact with. Must correspond to the vault's `assetMintAddress`. Available indices are defined in `src/constants/drift.ts`:
-  - USDC: `0`
-  - SOL: `1`
-  - USDT: `5`
-  - PYUSD: `22`
-  - USDS: `28`
-  - USDC_JLP: `34`
-
-- **`enableMarginTrading`** — boolean passed during `manager-init-user.ts` to enable margin trading on the Drift user account
-
-- **`directWithdrawDiscriminator`** — instruction discriminator bytes used by `admin-init-direct-withdraw.ts`
-
-- **`perpMarketIndex`** — target perpetual market for the delta-neutral strategy. Defaults to `DRIFT.PERP.SOL.MARKET_INDEX` (SOL-PERP, index 1). Change to `DRIFT.PERP.BTC.MARKET_INDEX` (index 2) for BTC-PERP.
-
-- **`shortPerpSizeRatio`** — fraction of vault NAV to deploy as short perp notional (default `0.40`)
-
-- **`bufferRatio`** — fraction of vault NAV to hold as liquid USDC buffer (default `0.10`)
-
-- **`rebalanceThresholdPct`** — delta deviation percentage that triggers a rebalance (default `2`)
-
-- **`minMarginHealthRatio`** — margin health floor below which short increases are blocked and reductions are triggered (default `1.5`)
-
-- **`perpOrderSize`** — base order size in the perp market's base asset units. Default is `1_000_000_000` (1 SOL at 9 decimals). Adjust before running open/rebalance scripts.
-
-> No swaps are performed. The vault's `assetMintAddress` must directly match the asset of the chosen `driftMarketIndex`.
+- `perpMarketIndex` — target perp market (default: SOL-PERP index 1)
+- `shortPerpSizeRatio` — fraction of NAV to deploy as short notional (default `0.40`)
+- `bufferRatio` — fraction of NAV held as liquid USDC buffer (default `0.10`)
+- `rebalanceThresholdPct` — delta deviation % that triggers a rebalance (default `2`)
+- `minMarginHealthRatio` — margin health floor (default `1.5`)
+- `perpOrderSize` — order size in base asset units (default: `1_000_000_000` = 1 SOL)
 
 ---
 
-## Available Scripts
+## The Delta-Neutral Funding Rate Strategy
 
-Run scripts with:
+### What it is
+
+This strategy earns yield from two sources simultaneously while maintaining near-zero directional exposure to SOL price:
+
+1. **Funding rate income** — by holding a short SOL-PERP position on Drift, the strategy receives funding payments from long traders whenever the funding rate is positive. On Drift, funding rates are paid hourly and have historically averaged 10–30% APY during bull markets.
+
+2. **USDC lending yield** — the USDC collateral sitting in Drift's spot market earns lending interest from borrowers, typically 3–8% APY.
+
+### Capital allocation (50/40/10 split)
+
+| Allocation | Purpose |
+|---|---|
+| 90% as spot USDC collateral | Earns lending yield; backs the short perp margin |
+| 40% synthetic short notional | The size of the short perp position (backed by the collateral above) |
+| 10% liquid buffer | Absorbs negative funding payments; emergency cushion |
+
+> The 40% short notional is synthetic — it does not require separate capital. It is the notional size of the short position, backed by the 90% USDC collateral already on Drift.
+
+### How delta neutrality works
+
+**Delta** = spot balance − short notional. When delta is near zero, the strategy has no net directional exposure — gains from the short offset losses from holding USDC as SOL rises, and vice versa.
+
+When SOL price moves, the short notional changes (mark-to-market) while the spot balance stays constant, causing delta to drift. When `|delta| / NAV` exceeds `rebalanceThresholdPct`, the short is resized to restore neutrality.
+
+### Risk management
+
+- **Rebalance** — fires automatically when delta deviation exceeds threshold; adjusts short size toward spot balance
+- **Margin health** = `(spotBalance + buffer) / shortNotional`. Below `minMarginHealthRatio` (1.5), no short increases are allowed. Below 1.2, the short is halved (emergency deleveraging)
+- **Buffer drain** — negative funding payments drain the buffer first before touching the spot balance
+
+### Key metrics
+
+| Metric | Go/No-Go Threshold | Meaning |
+|---|---|---|
+| Blended APY | > 15% | Annualised combined return from funding + lending |
+| Max Drawdown | < 10% | Largest peak-to-trough NAV decline during the period |
+| Margin breaches < 1.2 | 0 | Number of emergency deleveraging events |
+| Worst 30-day APY | > 0% | The worst rolling month must still be profitable |
+
+### When the strategy works best
+
+- **Sideways or mildly bullish markets** — funding rates are positive, price moves are small, delta stays manageable
+- **High funding rate environments** — bull markets with elevated perpetual premiums
+- **Avoid** — strong sustained bull runs (SOL +50%+ in a quarter) where short losses outpace funding income
+
+---
+
+## Running on Live Mainnet
+
+### Step 1 — Set up the vault (Admin, once)
+
+```bash
+# 1. Edit config/base.ts with your vault parameters
+# 2. Initialize the vault
+pnpm ts-node src/scripts/admin-init-vault.ts
+# Copy the output vault address and LUT address into config/base.ts
+
+# 3. Add the Drift adaptor
+pnpm ts-node src/scripts/admin-add-adaptor.ts
+
+# 4. (Optional) Set LP token metadata
+pnpm ts-node src/scripts/admin-set-token-metadata.ts
+```
+
+### Step 2 — Initialize the Drift strategy (Manager, once)
+
+```bash
+# Enable margin trading — required for the short perp position
+# Set enableMarginTrading: true in config/drift.ts first
+pnpm ts-node src/scripts/manager-init-user.ts
+```
+
+### Step 3 — Fund the strategy (Manager)
+
+```bash
+# Set depositStrategyAmount in config/drift.ts
+pnpm ts-node src/scripts/manager-deposit-user.ts
+```
+
+### Step 4 — Open the short perp position (Manager)
+
+```bash
+# Set perpMarketIndex and perpOrderSize in config/drift.ts
+pnpm ts-node src/scripts/manager-open-short-perp.ts
+```
+
+### Step 5 — Ongoing operations (Manager, run periodically)
+
+```bash
+# Rebalance delta when price moves (run every few hours or via cron)
+pnpm ts-node src/scripts/manager-rebalance-delta.ts
+
+# Compound yield — withdraws free collateral and re-deposits to grow position
+pnpm ts-node src/scripts/manager-compound-yield.ts
+
+# Query current positions
+pnpm ts-node src/scripts/query-strategy-positions.ts
+```
+
+### Step 6 — User deposits and withdrawals
+
+```bash
+# Deposit into the vault
+pnpm ts-node src/scripts/user-deposit-vault.ts
+
+# Query your position value
+pnpm ts-node src/scripts/user-query-position.ts
+
+# Instant withdrawal
+pnpm ts-node src/scripts/user-instant-withdraw-vault.ts
+
+# Or: request withdrawal (waits for withdrawalWaitingPeriod)
+pnpm ts-node src/scripts/user-request-withdraw-vault.ts
+pnpm ts-node src/scripts/user-withdraw-vault.ts
+```
+
+### Step 7 — Closing the position (Manager)
+
+```bash
+# Close the short perp before withdrawing all funds
+pnpm ts-node src/scripts/manager-close-short-perp.ts
+
+# Withdraw funds back to the vault
+pnpm ts-node src/scripts/manager-withdraw-user.ts
+```
+
+### Harvest fees (Admin)
+
+```bash
+pnpm ts-node src/scripts/admin-harvest-fee.ts
+```
+
+---
+
+## Backtesting the Strategy
+
+The `backtest/` directory contains a standalone simulation toolkit that replays the strategy against real historical Drift mainnet data — no on-chain interaction required.
+
+### What it simulates
+
+- Tick-by-tick hourly NAV evolution over the requested date range
+- Spot yield accrual, funding payments (positive and negative), mark-to-market, delta rebalancing, margin health checks
+- All strategy parameters from `config/drift.ts` (or overridden via grid search)
+
+### Quick start
+
+```bash
+# Single run with default params — sideways period recommended for first test
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01
+
+# With custom initial capital
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --capital 50000
+
+# Grid search — sweeps 192 parameter combinations to find the optimal config
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --grid
+```
+
+The report opens automatically in your browser when the run completes.
+
+### CLI options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--market` | `SOL-PERP` | Market to backtest (`SOL-PERP` or `BTC-PERP`) |
+| `--from` | — | Start date `YYYY-MM-DD` |
+| `--to` | `2025-01-09` | End date `YYYY-MM-DD` (Drift S3 data ceiling) |
+| `--months` | `12` | Lookback in months from `--to` (used when `--from` is not set) |
+| `--capital` | `100000` | Initial capital in USD |
+| `--grid` | `false` | Run full 192-combination parameter grid search |
+
+### Choosing a good date range
+
+The Drift S3 historical data is available from 2022 through early January 2025.
+
+| Period | SOL behaviour | Expected result |
+|---|---|---|
+| `2024-04-01` → `2024-07-01` | Sideways $130–$180 | Strategy likely passes — low drawdown |
+| `2023-01-01` → `2023-06-01` | Recovery from bear | Moderate funding, low drawdown |
+| `2024-10-01` → `2025-01-09` | Strong bull run +80% | High APY but drawdown likely > 10% |
+
+### Cache management
+
+Data is cached in `backtest/data/` keyed by market and date range. Delete to force a refresh:
+
+```bash
+rm backtest/data/*.json
+```
+
+### Outputs
+
+All results are written to `backtest/results/`:
+
+- `report.html` — interactive charts: NAV vs SOL price, drawdown, daily funding income, grid scatter plot
+- `grid-search-results.csv` — one row per parameter combination (grid mode)
+- `grid-search-summary.json` — top-5 configs filtered by drawdown < 10% and zero 1.2 breaches (grid mode)
+
+### Understanding the report
+
+- **NAV** (Net Asset Value) — total dollar value of the strategy position at each point in time. Starts at your `--capital` value.
+- **Blended APY** — annualised combined return from funding income + lending yield. Target: > 15%.
+- **Max Drawdown** — the largest peak-to-trough NAV decline. Target: < 10%. High during strong bull runs because the short loses money faster than funding compensates.
+- **Sharpe Ratio** — risk-adjusted return. Higher is better; > 1.0 is considered good.
+- **Rebalance events** — how many times the short was resized to restore delta neutrality.
+- **Negative funding hours** — hours where the strategy paid funding instead of receiving it.
+
+### Data sources
+
+| Data | Source |
+|---|---|
+| Funding rates | Drift S3 bucket (`fundingRateRecords/{YYYY}/{YYYYMMDD}`) |
+| SOL/USD prices | Binance public API (`SOLUSDT` 1h klines, no auth required) |
+| USDC lending rates | Constant 5% APY fallback (Drift S3 lending data unavailable) |
+
+---
+
+## Running on Devnet
+
+Devnet allows you to test the full strategy flow without real funds. The Drift program ID is the same on devnet (`dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH`), but you use devnet USDC and a devnet RPC.
+
+> **Note:** A Voltr devnet program ID is required to run vault operations on devnet. If one is not yet available, you can still test Drift interactions directly using the devnet constants in `config/devnet.ts`.
+
+### Step 1 — Configure for devnet
+
+In `.env`, point your RPC to a devnet endpoint:
+```bash
+HELIUS_RPC_URL="https://devnet.helius-rpc.com/?api-key=<your-key>"
+```
+
+In `config/base.ts`, set the devnet USDC mint:
+```typescript
+export const assetMintAddress = "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr";
+```
+
+In scripts that use Drift, import `driftEnv` from `config/devnet.ts` instead of the default:
+```typescript
+import { driftEnv } from "../../config/devnet";
+```
+
+### Step 2 — Airdrop SOL to your keypairs
+
+```bash
+solana airdrop 2 <ADMIN_PUBKEY>   --url devnet
+solana airdrop 2 <MANAGER_PUBKEY> --url devnet
+solana airdrop 2 <USER_PUBKEY>    --url devnet
+```
+
+For devnet USDC, use the Drift devnet faucet or mint via `spl-token`.
+
+### Step 3 — Run the same flow as mainnet
+
+The script sequence is identical to the live mainnet flow. All scripts work on devnet as long as the RPC and mint addresses are set correctly.
+
+```bash
+pnpm ts-node src/scripts/admin-init-vault.ts
+pnpm ts-node src/scripts/admin-add-adaptor.ts
+pnpm ts-node src/scripts/manager-init-user.ts
+pnpm ts-node src/scripts/manager-deposit-user.ts
+pnpm ts-node src/scripts/manager-open-short-perp.ts
+pnpm ts-node src/scripts/manager-rebalance-delta.ts
+```
+
+### Devnet constants (`config/devnet.ts`)
+
+```typescript
+DRIFT_DEVNET.PROGRAM_ID  // dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH
+DRIFT_DEVNET.PERP.SOL.MARKET_INDEX  // 1
+DRIFT_DEVNET.SPOT.USDC.MARKET_INDEX // 0
+```
+
+---
+
+## Available Scripts Reference
+
+Run any script with:
 ```bash
 pnpm ts-node src/scripts/<script-name>.ts
 ```
 
 ### Admin Scripts
 
-- **`admin-init-vault.ts`**
-  Initializes a new vault. Generates a vault keypair, sets up the vault with `vaultParams` and `assetMintAddress`, and optionally creates and populates a LUT.
-  Outputs the vault address and LUT address — update `config/base.ts` with these values.
-  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
-
-- **`admin-init-vault-and-set-token-metadata.ts`**
-  Same as above but also sets LP token metadata (`lpTokenMetadata`) in the same flow.
-  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
-
-- **`admin-set-token-metadata.ts`**
-  Sets or updates LP token metadata on an existing vault.
-  Requires: `vaultAddress`, `lpTokenMetadata`
-  Uses: `ADMIN_FILE_PATH`
-
-- **`admin-update-vault-config.ts`**
-  Updates a single vault config field. Supports all `VaultConfigField` variants including fees, caps, waiting periods, and admin/manager public keys. The value is serialized according to the field type.
-  Requires: `vaultAddress`, `vaultConfigUpdateField`, `vaultConfigUpdateValue`
-  Uses: `ADMIN_FILE_PATH`
-
-- **`admin-accept-vault-admin.ts`**
-  Accepts a pending admin transfer for the vault. Run this with the new admin's keypair after a `PendingAdmin` update has been set via `admin-update-vault-config.ts`.
-  Requires: `vaultAddress`
-  Uses: `ADMIN_FILE_PATH` (as the pending admin)
-
-- **`admin-harvest-fee.ts`**
-  Collects accumulated performance fees from the vault and distributes LP tokens to the admin, manager, and protocol admin. Creates recipient LP token accounts if they don't exist.
-  Requires: `vaultAddress`
-  Uses: `ADMIN_FILE_PATH`, `MANAGER_FILE_PATH`
-
-- **`admin-add-adaptor.ts`**
-  Adds the Voltr Drift Adaptor program (`ADAPTOR_PROGRAM_ID`) to the vault's approved adaptors list. Only needs to be run once per vault. Optionally updates the LUT.
-  Requires: `vaultAddress`
-  Uses: `ADMIN_FILE_PATH`
-
-- **`admin-init-direct-withdraw.ts`**
-  Initializes a direct withdraw strategy for the vault, registering a specific Drift spot market vault as a counterparty with a given instruction discriminator. Used for enabling direct user withdrawals from a Drift position.
-  Requires: `vaultAddress`, `driftMarketIndex`, `directWithdrawDiscriminator` (from `config/drift.ts`), `lookupTableAddress` (if `useLookupTable`)
-  Uses: `ADMIN_FILE_PATH`
+| Script | Description |
+|---|---|
+| `admin-init-vault.ts` | Initialize a new vault; outputs vault + LUT addresses |
+| `admin-init-vault-and-set-token-metadata.ts` | Init vault and set LP token metadata in one flow |
+| `admin-set-token-metadata.ts` | Set or update LP token metadata on an existing vault |
+| `admin-update-vault-config.ts` | Update a single vault config field (fees, caps, etc.) |
+| `admin-accept-vault-admin.ts` | Accept a pending admin transfer |
+| `admin-harvest-fee.ts` | Collect accumulated performance fees |
+| `admin-add-adaptor.ts` | Add the Drift adaptor to the vault (once per vault) |
+| `admin-init-direct-withdraw.ts` | Enable direct user withdrawals from a Drift position |
 
 ### Manager Scripts
 
-- **`manager-init-user.ts`**
-  Initializes the Drift "user" strategy for the vault. Creates the strategy PDA (seeded with `"drift_user"`), the Drift user stats and user accounts, and the vault strategy asset ATA. Sets the manager as the delegatee. Only needs to be run once per vault.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `enableMarginTrading`
-  Uses: `ADMIN_FILE_PATH` (as payer), `MANAGER_FILE_PATH` (as delegatee)
-
-- **`manager-init-earn.ts`**
-  Initializes the Drift "earn" strategy for the vault. Uses the spot market vault PDA as the strategy address (seeded with `"spot_market_vault"`). Creates Drift user stats, user, and spot market accounts. Only needs to be run once per vault.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `driftMarketIndex`
-  Uses: `ADMIN_FILE_PATH`
-
-- **`manager-deposit-user.ts`**
-  Deposits funds from the vault into the Drift "user" strategy (spot market defined by `driftMarketIndex`). Uses `@drift-labs/sdk` to build remaining accounts.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-withdraw-user.ts`**
-  Withdraws funds from the Drift "user" strategy back into the vault. Uses `@drift-labs/sdk` to build remaining accounts.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `withdrawStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-deposit-earn.ts`**
-  Deposits funds from the vault into the Drift "earn" strategy (spot market vault PDA). Uses `@drift-labs/sdk` to build remaining accounts.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-withdraw-earn.ts`**
-  Withdraws funds from the Drift "earn" strategy back into the vault. Uses `@drift-labs/sdk` to build remaining accounts.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `withdrawStrategyAmount`, `driftMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-open-short-perp.ts`**
-  Opens a short perpetual position on Drift via `placeAndTakePerpOrder`. Uses `perpMarketIndex` and `perpOrderSize` from `config/drift.ts`. Part of the delta-neutral funding rate strategy.
-  Requires: `vaultAddress`, `perpMarketIndex`, `perpOrderSize`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-close-short-perp.ts`**
-  Closes the current short perp position by submitting a reduce-only LONG order of equal size. Exits cleanly if no position exists.
-  Requires: `vaultAddress`, `perpMarketIndex`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-rebalance-delta.ts`**
-  Reads current spot and perp positions, computes delta, and adjusts the short if deviation exceeds `rebalanceThresholdPct`. Checks margin health before acting — blocks short increases below `minMarginHealthRatio`, and submits a reduce-only 50% order if health drops below 1.2.
-  Requires: `vaultAddress`, `perpMarketIndex`, `rebalanceThresholdPct`, `minMarginHealthRatio`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
-
-- **`manager-compound-yield.ts`**
-  Computes withdrawable yield (free collateral above the margin safety floor), withdraws it from Drift, and re-deposits it into the spot market to compound returns. No-ops if no yield is available.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `driftMarketIndex`, `perpMarketIndex`, `minMarginHealthRatio`, `lookupTableAddress` (if `useLookupTable`)
-  Uses: `MANAGER_FILE_PATH`
+| Script | Description |
+|---|---|
+| `manager-init-user.ts` | Initialize Drift user strategy (with margin trading support) |
+| `manager-init-earn.ts` | Initialize Drift earn strategy (no margin) |
+| `manager-deposit-user.ts` | Deposit vault funds into Drift user strategy |
+| `manager-withdraw-user.ts` | Withdraw from Drift user strategy back to vault |
+| `manager-deposit-earn.ts` | Deposit vault funds into Drift earn strategy |
+| `manager-withdraw-earn.ts` | Withdraw from Drift earn strategy back to vault |
+| `manager-open-short-perp.ts` | Open the short perp position |
+| `manager-close-short-perp.ts` | Close the short perp position |
+| `manager-rebalance-delta.ts` | Rebalance delta if deviation exceeds threshold |
+| `manager-compound-yield.ts` | Withdraw free collateral and re-deposit to compound |
 
 ### User Scripts
 
-- **`user-deposit-vault.ts`**
-  Deposits `depositAmountVault` of the vault's asset into the vault, receiving LP tokens. Handles wSOL wrapping if `assetMintAddress` is the native SOL mint.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`, `depositAmountVault`
-  Uses: `USER_FILE_PATH`
-
-- **`user-request-withdraw-vault.ts`**
-  Initiates a withdrawal request. Only one pending request is allowed at a time. Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll`.
-  Requires: `vaultAddress`
-  Uses: `USER_FILE_PATH`
-
-- **`user-withdraw-vault.ts`**
-  Completes a previously requested withdrawal after the `withdrawalWaitingPeriod` has elapsed. Handles wSOL unwrapping if needed.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`
-  Uses: `USER_FILE_PATH`
-
-- **`user-instant-withdraw-vault.ts`**
-  Performs an immediate single-transaction withdrawal. Uses `withdrawAmountVault`, `isWithdrawInLp`, `isWithdrawAll`. Handles wSOL unwrapping if needed.
-  Requires: `vaultAddress`, `assetMintAddress`, `assetTokenProgram`
-  Uses: `USER_FILE_PATH`
-
-- **`user-cancel-request-withdraw-vault.ts`**
-  Cancels an outstanding withdrawal request. Fails if no pending request exists.
-  Requires: `vaultAddress`
-  Uses: `USER_FILE_PATH`
-
-### Query Scripts
-
-- **`user-query-position.ts`**
-  Fetches the user's LP token balance and calculates the equivalent underlying asset value — both before and after redemption fees and locked profit degradation.
-  Requires: `vaultAddress`
-  Uses: `USER_FILE_PATH`
-
-- **`query-strategy-positions.ts`**
-  Fetches the vault's total asset value and lists all initialized strategy allocations with their strategy address and position value.
-  Requires: `vaultAddress`
-
----
-
-## Usage Flows
-
-### Basic Vault Flow
-
-1. Set environment variables and edit `config/base.ts` with `vaultConfig`, `vaultParams`, `assetMintAddress`, `assetTokenProgram`.
-
-2. Initialize the vault:
-   ```bash
-   pnpm ts-node src/scripts/admin-init-vault.ts
-   ```
-   Copy the output `Vault:` and `LUT:` addresses into `config/base.ts`.
-
-3. (Optional) Set LP token metadata:
-   ```bash
-   pnpm ts-node src/scripts/admin-set-token-metadata.ts
-   ```
-
-4. Deposit (User):
-   ```bash
-   pnpm ts-node src/scripts/user-deposit-vault.ts
-   ```
-
-5. Query position:
-   ```bash
-   pnpm ts-node src/scripts/user-query-position.ts
-   ```
-
-6. Withdraw:
-   - Instant:
-     ```bash
-     pnpm ts-node src/scripts/user-instant-withdraw-vault.ts
-     ```
-   - With waiting period:
-     ```bash
-     pnpm ts-node src/scripts/user-request-withdraw-vault.ts
-     # wait for withdrawalWaitingPeriod to elapse
-     pnpm ts-node src/scripts/user-withdraw-vault.ts
-     ```
-
-7. Harvest fees (Admin):
-   ```bash
-   pnpm ts-node src/scripts/admin-harvest-fee.ts
-   ```
-
-### Drift Strategy Flow
-
-Assumes the vault is already initialized and `config/base.ts` is fully configured.
-
-1. Configure `config/drift.ts`: set `driftMarketIndex` to match your vault's `assetMintAddress`, and set `depositStrategyAmount` / `withdrawStrategyAmount`.
-
-2. Add the Drift adaptor (Admin, once per vault):
-   ```bash
-   pnpm ts-node src/scripts/admin-add-adaptor.ts
-   ```
-
-3. Initialize the Drift strategy (once per vault). Choose the appropriate strategy type:
-   - **User strategy** (supports margin trading):
-     ```bash
-     pnpm ts-node src/scripts/manager-init-user.ts
-     ```
-   - **Earn strategy** (spot market vault, no margin):
-     ```bash
-     pnpm ts-node src/scripts/manager-init-earn.ts
-     ```
-
-4. (Optional) Initialize direct withdraw for the strategy:
-   ```bash
-   pnpm ts-node src/scripts/admin-init-direct-withdraw.ts
-   ```
-
-5. Deposit vault funds into the Drift strategy (Manager):
-   - User strategy: `pnpm ts-node src/scripts/manager-deposit-user.ts`
-   - Earn strategy: `pnpm ts-node src/scripts/manager-deposit-earn.ts`
-
-6. Query strategy positions:
-   ```bash
-   pnpm ts-node src/scripts/query-strategy-positions.ts
-   ```
-
-7. Withdraw from the Drift strategy back to the vault (Manager):
-   - User strategy: `pnpm ts-node src/scripts/manager-withdraw-user.ts`
-   - Earn strategy: `pnpm ts-node src/scripts/manager-withdraw-earn.ts`
-
----
-
-### Delta-Neutral Funding Rate Strategy Flow
-
-This strategy deploys USDC in a 50/40/10 split: 50% to Drift spot USDC lending, 40% as margin for a short SOL-PERP (or BTC-PERP) position, and 10% held as a liquid buffer. Yield comes from perpetual funding rate payments and USDC lending interest simultaneously. Target blended APY: 18–40%.
-
-**Prerequisites:** vault initialized, Drift user strategy initialized with `enableMarginTrading: true`, funds deposited into the Drift spot market via `manager-deposit-user.ts`.
-
-**Configure `config/drift.ts`:**
-- Set `perpMarketIndex` (default: SOL-PERP index 1)
-- Set `perpOrderSize` to the desired order size in base asset units (default: 1 SOL = `1_000_000_000`)
-- Tune `shortPerpSizeRatio`, `bufferRatio`, `rebalanceThresholdPct`, `minMarginHealthRatio` as needed
-
-**Open the position:**
-```bash
-pnpm ts-node src/scripts/manager-open-short-perp.ts
-```
-
-**Rebalance delta (run periodically):**
-```bash
-pnpm ts-node src/scripts/manager-rebalance-delta.ts
-```
-Adjusts the short size if delta deviation exceeds `rebalanceThresholdPct`. Automatically de-risks if margin health is low.
-
-**Compound yield (run periodically):**
-```bash
-pnpm ts-node src/scripts/manager-compound-yield.ts
-```
-Withdraws free collateral above the margin safety floor and re-deposits it to grow the position over time.
-
-**Close the position (before full vault withdrawal):**
-```bash
-pnpm ts-node src/scripts/manager-close-short-perp.ts
-```
-Fully closes the short perp position. Then run `manager-withdraw-user.ts` to return funds to the vault.
+| Script | Description |
+|---|---|
+| `user-deposit-vault.ts` | Deposit into the vault, receive LP tokens |
+| `user-request-withdraw-vault.ts` | Initiate a withdrawal request |
+| `user-withdraw-vault.ts` | Complete a withdrawal after the waiting period |
+| `user-instant-withdraw-vault.ts` | Immediate single-transaction withdrawal |
+| `user-cancel-request-withdraw-vault.ts` | Cancel a pending withdrawal request |
+| `user-query-position.ts` | Query LP balance and underlying asset value |
+| `query-strategy-positions.ts` | Query vault total value and all strategy allocations |
 
 ---
 
@@ -410,135 +409,34 @@ Fully closes the short perp position. Then run `manager-withdraw-user.ts` to ret
 ```
 .
 ├── config/
-│   ├── base.ts                              # Base vault configuration
-│   └── drift.ts                             # Drift strategy configuration
+│   ├── base.ts              # Vault configuration
+│   ├── drift.ts             # Drift strategy parameters
+│   └── devnet.ts            # Devnet constants and environment
 ├── src/
 │   ├── constants/
-│   │   ├── base.ts                          # Protocol admin address
-│   │   └── drift.ts                         # Drift program IDs, market indices, discriminators
+│   │   ├── base.ts          # Protocol admin address
+│   │   └── drift.ts         # Drift program IDs, market indices, discriminators
 │   ├── utils/
-│   │   └── helper.ts                        # Tx sending, ATA setup, LUT utilities
-│   └── scripts/
-│       ├── admin-init-vault.ts
-│       ├── admin-init-vault-and-set-token-metadata.ts
-│       ├── admin-set-token-metadata.ts
-│       ├── admin-update-vault-config.ts
-│       ├── admin-accept-vault-admin.ts
-│       ├── admin-harvest-fee.ts
-│       ├── admin-add-adaptor.ts
-│       ├── admin-init-direct-withdraw.ts
-│       ├── manager-init-user.ts
-│       ├── manager-init-earn.ts
-│       ├── manager-deposit-user.ts
-│       ├── manager-withdraw-user.ts
-│       ├── manager-deposit-earn.ts
-│       ├── manager-withdraw-earn.ts
-│       ├── manager-open-short-perp.ts
-│       ├── manager-close-short-perp.ts
-│       ├── manager-rebalance-delta.ts
-│       ├── manager-compound-yield.ts
-│       ├── user-deposit-vault.ts
-│       ├── user-request-withdraw-vault.ts
-│       ├── user-withdraw-vault.ts
-│       ├── user-instant-withdraw-vault.ts
-│       ├── user-cancel-request-withdraw-vault.ts
-│       ├── user-query-position.ts
-│       └── query-strategy-positions.ts
+│   │   └── helper.ts        # Tx sending, ATA setup, LUT utilities
+│   └── scripts/             # One script per operation
+├── backtest/
+│   ├── types.ts             # Shared interfaces
+│   ├── align.ts             # Data alignment + lending interpolation
+│   ├── fetch-funding-rates.ts  # Drift S3 daily CSV fetcher
+│   ├── fetch-lending-rates.ts  # Lending rate fetcher (with fallback)
+│   ├── fetch-prices.ts      # Binance klines fetcher
+│   ├── simulator.ts         # Tick-by-tick NAV simulation engine
+│   ├── metrics.ts           # APY, Sharpe, drawdown, pass/fail evaluation
+│   ├── grid-search.ts       # 192-combination parameter sweep
+│   ├── report.ts            # HTML report generator
+│   ├── run-backtest.ts      # CLI entry point
+│   ├── data/                # Cached JSON data (gitignored)
+│   └── results/             # Output files (gitignored)
+├── docs/                    # Strategy documentation and analysis
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
 └── pnpm-lock.yaml
-```
-
----
-
-## Delta-Neutral Backtest Toolkit
-
-A standalone TypeScript simulation toolkit in `backtest/` that measures the historical performance of the 50/40/10 delta-neutral funding rate strategy using real Drift Protocol mainnet data. No on-chain interaction occurs — it runs entirely offline.
-
-### What it does
-
-- Fetches and caches historical funding rates from the Drift S3 bucket (daily CSV files)
-- Fetches and caches hourly SOL/USD prices from the Binance public API
-- Falls back to a constant 5% APY for USDC lending rates (Drift S3 lending data unavailable)
-- Runs a tick-by-tick hourly NAV simulation: spot yield accrual, funding payments, mark-to-market, delta rebalancing, margin health checks
-- Computes blended APY, Sharpe ratio, max drawdown, rebalance count, margin health breaches
-- Evaluates go/no-go pass criteria: APY > 15%, drawdown < 10%, zero margin breaches below 1.2
-- Optionally sweeps a 192-combination parameter grid (6 × 4 × 4 × 2) and writes CSV + JSON results
-- Generates a self-contained HTML report with interactive charts (NAV vs price, drawdown, funding income, grid scatter)
-
-### Usage
-
-```bash
-# Single run — default params from config/drift.ts
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --months 3
-
-# Explicit date range (YYYY-MM-DD)
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01
-
-# Explicit date range (YYYY-MM-DD) and capital
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --capital 500000
-
-or
-
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2023-01-01 --to 2023-11-03 --capital 500000
-
-# Grid search over all 192 parameter combinations
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --grid
-```
-
-**CLI options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--market` | `SOL-PERP` | Market to backtest (`SOL-PERP` or `BTC-PERP`) |
-| `--months` | `12` | Lookback window in months (used when `--from` is not set) |
-| `--from` | — | Start date `YYYY-MM-DD` (overrides `--months`) |
-| `--to` | `2025-01-09` | End date `YYYY-MM-DD` (S3 data ceiling) |
-| `--grid` | `false` | Run full 192-combination grid search |
-| `--capital` | `100000` | Initial capital in USD to simulate with |
-
-**Cache:** All fetched data is cached in `backtest/data/` as JSON files keyed by market and date range. Delete a file to force a refresh:
-```bash
-rm backtest/data/*.json
-```
-
-**Outputs** (written to `backtest/results/`):
-- `report.html` — interactive HTML report with charts (open in any browser)
-- `grid-search-results.csv` — one row per parameter combination (grid mode only)
-- `grid-search-summary.json` — top-5 configurations by APY, filtered by drawdown < 10% and zero 1.2 breaches (grid mode only)
-
-### Data sources
-
-| Data | Source | Notes |
-|---|---|---|
-| Funding rates | Drift S3 (`fundingRateRecords/{YYYY}/{YYYYMMDD}`) | Available 2022–Jan 2025 |
-| SOL/USD prices | Binance public API (`SOLUSDT` 1h klines) | No auth required |
-| USDC lending rates | Constant 5% APY fallback | Drift S3 lending data not available |
-
-### Interpreting results
-
-- **Blended APY** is annualised from the simulation window — a 3-month bull run will produce inflated numbers
-- **Max drawdown** captures intra-period dips from the short losing money during price pumps
-- **The strategy is designed for sideways/mildly bullish markets** — strong bull runs (e.g. Oct–Jan 2025 when SOL +80%) will exceed the 10% drawdown threshold
-- For representative results, test a range-bound period (e.g. `--from 2024-04-01 --to 2024-07-01`)
-
-### Backtest structure
-
-```
-backtest/
-├── types.ts                  # Shared interfaces
-├── align.ts                  # Data alignment + lending interpolation
-├── fetch-funding-rates.ts    # Drift S3 daily CSV fetcher
-├── fetch-lending-rates.ts    # Lending rate fetcher (with fallback)
-├── fetch-prices.ts           # Binance klines fetcher
-├── simulator.ts              # Tick-by-tick NAV simulation engine
-├── metrics.ts                # APY, Sharpe, drawdown, pass/fail evaluation
-├── grid-search.ts            # 192-combination parameter sweep
-├── report.ts                 # HTML report generator
-├── run-backtest.ts           # CLI entry point
-├── data/                     # Cached JSON data files (gitignored)
-└── results/                  # Output files (gitignored)
 ```
 
 ---
@@ -550,12 +448,12 @@ backtest/
 - `@solana/web3.js` — core Solana SDK
 - `@solana/spl-token` — SPL Token utilities
 - `@voltr/vault-sdk` — Voltr Vault SDK
-- `@drift-labs/sdk` — Drift Protocol SDK (used for remaining accounts in strategy scripts)
+- `@drift-labs/sdk` — Drift Protocol SDK
 - `bs58` — Base58 encoding
 - `dotenv` — environment variable loading
 
 **Dev:**
-- `typescript`, `ts-node`, `@types/node`, `@types/bn.js`
+- `typescript`, `ts-node`, `@types/node`, `@types/bn.js`, `vitest`, `fast-check`
 
 ---
 
