@@ -474,10 +474,13 @@ A standalone TypeScript simulation toolkit in `backtest/` that measures the hist
 pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --months 3
 
 # Explicit date range (YYYY-MM-DD)
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01
+
+# Explicit date range (YYYY-MM-DD) and capital
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --capital 500000
 
 # Grid search over all 192 parameter combinations
-pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-07-01 --grid
+pnpm ts-node backtest/run-backtest.ts --market SOL-PERP --from 2024-04-01 --to 2024-12-01 --grid
 ```
 
 **CLI options:**
